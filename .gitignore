@@ -1,0 +1,21 @@
+# Build output
+*.so
+*.o
+*.a
+
+# Go
+/cmdcode-go
+/dist/
+
+# Test / coverage artifacts
+*.test
+*.out
+coverage.html
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+/go/cmdcode-go

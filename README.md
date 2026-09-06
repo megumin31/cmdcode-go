@@ -1,0 +1,83 @@
+# cmdcode-go
+
+Unofficial [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin that serves the **CommandCode Go ($1/mo) plan** through the CLI's own `POST /alpha/generate` gateway. The Go plan has no Provider API access (`/provider/v1/*` returns `403 upgrade_required`), so this plugin replays the CLI wire protocol and translates OpenAI chat traffic into it — exactly what the official `command-code` CLI does on every turn.
+
+> Reverse-engineered from the `command-code` 1.47.1 bundle. Not affiliated with Command Code / Langbase. The endpoint is undocumented and can drift; when it does, update `cli_version` first.
+
+## Features
+
+- **Executor** (`both` scope, `chat-completions` in/out): OpenAI chat → gateway NDJSON (`text-delta` / `reasoning-*` / `tool-call` / `finish` / `error` / `abort`) → OpenAI response. Reasoning travels as OpenRouter-style `reasoning_content` deltas so strict OpenAI clients keep working.
+- **Streaming + buffered**: incremental SSE relay chunk-by-chunk; non-streaming calls are served by consuming the NDJSON server-side. Hosts without stream ids get a buffered fallback.
+- **`response_before_translator`**: adds the missing `data:` prefix for OpenAI→Claude translation (that converter drops unprefixed payloads; the OpenAI HTTP layer frames itself, so raw JSON is required there).
+- **`model_registrar` + `model_provider`**: 42 static Go-plan models (open-weight family + Luna / Grok 4.5 / Qwen Max/Plus / Muse Spark contributors). Static on purpose — registration never needs network.
+- **`model_router`**: claims `cmdcode-go/<id>`, canonical and short names; everything else falls through to other providers.
+- **Tool round-trip**: tool schemas are coerced to the `{type: object}` record the gateway demands (null/missing schemas become `{"type":"object","properties":{}}` instead of failing the turn); `tool_choice: none` strips tools.
+- **Usage accounting**: `usage` is always present on both paths. When a `finish` event omits `totalUsage`, downstream gets zeros (the official CLI harness default), never null. Every 100 turns a summary goes to stderr for local audits:
+  `cmdcode-go: usage turns=N with_totalUsage=X zero_fallback=Y truncated=Z`
+- **Truncation is a failure**: a turn ending without a `finish` event surfaces as an error so the host can retry (mirroring the official 502), never a synthesized `stop`.
+
+## Requirements
+
+- CLIProxyAPI v7 host (`github.com/router-for-me/CLIProxyAPI/v7` v7.2.149)
+- Go 1.26+ (build only)
+- A CommandCode account key (`user_...`)
+
+## Install
+
+```bash
+cd go && go build -buildmode=c-shared -o cmdcode-go.so .
+cp cmdcode-go.so <cliproxyapi>/plugins/
+```
+
+Run the translation regression tests (no network, no key needed):
+
+```bash
+cd go && go test ./...
+```
+
+## Configuration
+
+```yaml
+plugins:
+  dir: "plugins"
+  configs:
+    cmdcode-go:
+      enabled: true
+      priority: 1
+      # api_key: "user_..."    # or COMMANDCODE_KEY env / ~/.commandcode/auth.json
+      # base_url: "https://api.commandcode.ai"
+      # cli_version: "1.47.1"  # must track the installed CLI; stale versions get rejected
+      # project_slug: "cliproxyapi"
+      # permission_mode: "standard"  # forwarded as permissionMode
+      # models: ["deepseek/deepseek-v4-flash"]  # allowlist, empty = all
+      # disable_models: ["xai/grok-4.5"]        # denylist
+```
+
+Key resolution order: host auth attributes → plugin `api_key` → `COMMANDCODE_KEY` (also `COMMANDCODE_API_KEY`, `COMMAND_CODE_API_KEY`) → CLI auth file (`~/.commandcode/auth.json`, `$COMMANDCODE_CONFIG_DIR/auth.json`).
+
+## Behavior notes
+
+- The gateway rejects `stream:false`; the plugin always sends `stream:true`.
+- Default output budget is `64000` tokens when the client sends none (same as the official CLI), clamped down to each model's registered output cap. Explicit client budgets are respected.
+- `reasoning_effort` is clamped to the gateway enum (`low|medium|high|xhigh|max`); unknown values degrade to the model default instead of failing the turn.
+- Reasoning-heavy models spend `max_tokens` on thinking first — tiny caps return `finish_reason: length` with empty content. Give generous budgets (models were observed using 300+ thinking tokens).
+- Chunk payloads stay raw JSON — the host adds `data:` framing and the terminal `data: [DONE]` itself. Pre-framed payloads would double up.
+- Upstream 503s surface as HTTP 503 with `isRetryable` preserved (free-tier models shed load under concurrency; clients should retry).
+
+## Verification status
+
+- `go vet` + `go test` green (28 tests, `-race` clean: translation, tool round-trip, `tool_choice:none`, adversarial inputs, host-YAML config, NDJSON edges, incremental-stream parser, framing hook, effort sanitizer, schema coercion, model allow/deny filtering, routing contract, key precedence, UUID shape, error-status mapping, zero-fallback usage, truncation contract, usage-turn counters).
+- Stress verified through a real host binary: 12-way parallel mixed-model burst, 12× sequential sustained (12/12), 4× mid-stream cancels with instant recovery, 3787-token single-turn output, 200KB tool_result input, image input, scripted agentic tool loop, and official `openai` + `anthropic` SDK suites on all three protocols.
+
+## Project layout
+
+| File | Role |
+|---|---|
+| `go/main.go` | c-shared exports, host RPC dispatch |
+| `go/gateway.go` | OpenAI ↔ `/alpha/generate` translation, usage framing, output budgets |
+| `go/stream.go` | Incremental NDJSON→SSE relay (`liveStream`), truncation handling |
+| `go/executor.go` | Stream / non-stream / buffered execution paths |
+| `go/models.go` | Static Go-plan model table, allow/deny filtering, routing |
+| `go/config.go` | Host YAML config, key / URL / version resolution |
+| `go/normalize.go` | `response_before_translator` hook (OpenAI→Claude `data:` prefix) |
+| `go/gateway_test.go` | Regression suite (no network) |
