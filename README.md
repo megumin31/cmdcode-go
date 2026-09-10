@@ -41,17 +41,17 @@ Run the translation regression tests (no network, no key needed):
 cd go && go test ./...
 ```
 
-### 让你的 agent 来部署
+### Deploy with your agent
 
-把下面这段直接发给你的 agent（把 `<host>` 换成你的机器，SSH 别名或地址都行）：
+Paste this to your agent (replace `<host>` with your machine — SSH alias or address):
 
 ```text
-请照着 https://github.com/megumin31/cmdcode-go/blob/main/DEPLOY.md，
-把 cmdcode-go 插件部署到我的主机 <host> 上：
-1. 一定在目标机器本机编译，不要跨平台拷贝 .so
-2. 备份旧插件 → 安装 → 重启 host
-3. 按文档第 4 节逐项验收，把 `models refreshed` 那行和 is-active 结果贴给我
-4. 遇到问题先查第 6 节故障表，搞不定再问我
+Deploy the cmdcode-go plugin to my host <host> following
+https://github.com/megumin31/cmdcode-go/blob/main/DEPLOY.md:
+1. Always build on the target machine itself — never copy a .so across platforms
+2. Back up the old plugin, install, restart the host
+3. Verify item by item per section 4 and paste me the `models refreshed` line plus the is-active result
+4. On any problem, check the section 6 troubleshooting table first; ask me only if stuck
 ```
 
 ## Configuration
