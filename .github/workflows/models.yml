@@ -24,9 +24,9 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -52,7 +52,7 @@ jobs:
             --prev models.json --models-dev /tmp/models.dev/models \
             --models-dev-rev "$REV" \
             --out models.json --gen go/models_generated.go
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
@@ -66,7 +66,7 @@ jobs:
           go test ./...
 
       - name: Commit refreshed roster
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "chore(models): refresh roster from command-code@latest"
           file_pattern: "models.json go/models_generated.go"
