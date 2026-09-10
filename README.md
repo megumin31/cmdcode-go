@@ -53,6 +53,7 @@ cd go && go test ./...
 3. 按文档第 4 节逐项验收，把 `models refreshed` 那行和 is-active 结果贴给我
 4. 遇到问题先查第 6 节故障表，搞不定再问我
 ```
+
 ## Configuration
 
 ```yaml
