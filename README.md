@@ -1,5 +1,7 @@
 # cmdcode-go
 
+English | [中文版](README.zh-CN.md)
+
 Unofficial [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin that serves the **CommandCode Go ($1/mo) plan** through the CLI's own `POST /alpha/generate` gateway. The Go plan has no Provider API access (`/provider/v1/*` returns `403 upgrade_required`), so this plugin replays the CLI wire protocol and translates OpenAI chat traffic into it — exactly what the official `command-code` CLI does on every turn.
 
 > Reverse-engineered from the `command-code` bundle (`models.json` records the exact CLI version each roster came from). Not affiliated with Command Code / Langbase. The endpoint is undocumented and can drift; when it does, update `cli_version` first.
@@ -43,14 +45,14 @@ cd go && go test ./...
 
 ### Deploy with your agent
 
-Paste this to your agent (replace `<host>` with your machine — SSH alias or address):
+Paste this to your agent:
 
 ```text
-Deploy the cmdcode-go plugin to my host <host> following
+Deploy the cmdcode-go plugin following
 https://github.com/megumin31/cmdcode-go/blob/main/DEPLOY.md:
-1. Always build on the target machine itself — never copy a .so across platforms
+1. Find where the CLIProxyAPI host runs; always build on that machine itself — never copy a .so across platforms
 2. Back up the old plugin, install, restart the host
-3. Verify item by item per section 4 and paste me the `models refreshed` line plus the is-active result
+3. Verify item by item per section 4 and paste me the `models refreshed` line plus the service status
 4. On any problem, check the section 6 troubleshooting table first; ask me only if stuck
 ```
 
