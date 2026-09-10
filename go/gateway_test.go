@@ -5,10 +5,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func mustEnvelope(t *testing.T, payload string) map[string]any {
@@ -755,5 +760,151 @@ func TestUpstreamErrorEnvelope(t *testing.T) {
 	}
 	if env.OK || env.Error.HTTPStatus != 429 || !strings.Contains(env.Error.Code, "rate_limited") {
 		t.Fatalf("envelope = %s", raw)
+	}
+}
+
+func resetDynamicState(t *testing.T) {
+	t.Helper()
+	prevCfg := getConfig()
+	dynMu.Lock()
+	prevTable, prevOrigin := dynTable, dynOrigin
+	prevFetched, prevAttempt, prevFileMT := dynFetchedAt, dynAttemptAt, dynFileMT
+	dynTable, dynOrigin = nil, ""
+	dynFetchedAt, dynAttemptAt, dynFileMT = time.Time{}, time.Time{}, time.Time{}
+	dynMu.Unlock()
+	setConfig(pluginConfig{})
+	t.Cleanup(func() {
+		setConfig(prevCfg)
+		dynMu.Lock()
+		dynTable, dynOrigin = prevTable, prevOrigin
+		dynFetchedAt, dynAttemptAt, dynFileMT = prevFetched, prevAttempt, prevFileMT
+		dynMu.Unlock()
+	})
+}
+
+func remoteFixture(extra string) string {
+	return `{"schema_version":1,"source_cli_version":"9.9.9","models":[` +
+		`{"id":"deepseek/deepseek-v4-flash","display":"Flash","context":1000000,"output":131072},` +
+		`{"id":"test/remote-only","display":"Remote","context":262144,"output":65536},` +
+		`{"id":"test/remote-small","display":"","context":0,"output":0}` +
+		extra + `]}`
+}
+
+func TestRemoteModelsFetchAndCache(t *testing.T) {
+	resetDynamicState(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(remoteFixture("")))
+	}))
+	setConfig(pluginConfig{ModelsURL: srv.URL})
+	maybeRefreshModels()
+	got := registeredModels()
+	if len(got) != 3 {
+		t.Fatalf("remote registry = %d models, want 3", len(got))
+	}
+	if _, ok := matchModel("test/remote-only"); !ok {
+		t.Fatal("remote-only model not routed")
+	}
+	if c := modelOutputCap("test/remote-small"); c != 65536 {
+		t.Fatalf("fallback output cap = %d, want 65536", c)
+	}
+	for _, m := range got {
+		if m.ID == "test/remote-small" && m.DisplayName != "test/remote-small" {
+			t.Fatalf("fallback display = %q, want id", m.DisplayName)
+		}
+	}
+	// TTL must serve the snapshot without network: point at a dead URL.
+	srv.Close()
+	setConfig(pluginConfig{ModelsURL: "http://127.0.0.1:1/unreachable"})
+	maybeRefreshModels()
+	if len(registeredModels()) != 3 {
+		t.Fatal("TTL cache not served after server went away")
+	}
+}
+
+func TestRemoteModelsInvalidFallsBack(t *testing.T) {
+	cases := map[string]string{
+		"garbage":        `{bad json`,
+		"wrong schema":   `{"schema_version":999,"models":[]}`,
+		"too few":        `{"schema_version":1,"models":[]}`,
+		"missing anchor": `{"schema_version":1,"models":[{"id":"test/x","display":"X","context":1,"output":1}]}`,
+	}
+	for name, body := range cases {
+		resetDynamicState(t)
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(body))
+		}))
+		setConfig(pluginConfig{ModelsURL: srv.URL})
+		maybeRefreshModels()
+		srv.Close()
+		if got, want := len(registeredModels()), len(modelTable); got != want {
+			t.Errorf("%s: registry = %d, want compiled %d", name, got, want)
+		}
+	}
+}
+
+func TestRemoteModelsFile(t *testing.T) {
+	resetDynamicState(t)
+	path := filepath.Join(t.TempDir(), "models.json")
+	if err := os.WriteFile(path, []byte(remoteFixture("")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	setConfig(pluginConfig{ModelsFile: path})
+	maybeRefreshModels()
+	if len(registeredModels()) != 3 {
+		t.Fatalf("file registry = %d models, want 3", len(registeredModels()))
+	}
+	// Same mtime content is not reloaded; bumped mtime is.
+	if err := os.WriteFile(path, []byte(remoteFixture(
+		`,{"id":"test/remote-extra","display":"Extra","context":1000,"output":1000}`,
+	)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(path, when, when); err != nil {
+		t.Fatal(err)
+	}
+	maybeRefreshModels()
+	if len(registeredModels()) != 4 {
+		t.Fatalf("reloaded registry = %d models, want 4", len(registeredModels()))
+	}
+	if _, ok := matchModel("test/remote-extra"); !ok {
+		t.Fatal("reloaded model not routed")
+	}
+}
+
+func TestRemoteModelsDisabled(t *testing.T) {
+	resetDynamicState(t)
+	path := filepath.Join(t.TempDir(), "models.json")
+	if err := os.WriteFile(path, []byte(remoteFixture("")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	setConfig(pluginConfig{ModelsFile: path})
+	maybeRefreshModels()
+	if len(registeredModels()) != 3 {
+		t.Fatalf("file registry = %d models, want 3", len(registeredModels()))
+	}
+	setConfig(pluginConfig{ModelsRefreshInterval: "0"})
+	maybeRefreshModels()
+	if got, want := len(registeredModels()), len(modelTable); got != want {
+		t.Fatalf("disabled registry = %d, want compiled %d", got, want)
+	}
+}
+
+func TestConfigureRosterKeys(t *testing.T) {
+	prev := getConfig()
+	defer setConfig(prev)
+	setConfig(pluginConfig{})
+	yaml := "models_url: https://example.com/m.json\nmodels_file: /tmp/m.json\nmodels_refresh_interval: 12h\n"
+	payload := `{"config_yaml":"` + base64.StdEncoding.EncodeToString([]byte(yaml)) + `"}`
+	raw, err := handleMethod("plugin.reconfigure", []byte(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = raw
+	cfg := getConfig()
+	if cfg.ModelsURL != "https://example.com/m.json" || cfg.ModelsFile != "/tmp/m.json" ||
+		cfg.ModelsRefreshInterval != "12h" {
+		t.Fatalf("roster config = %+v", cfg)
 	}
 }

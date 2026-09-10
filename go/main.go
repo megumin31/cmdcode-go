@@ -174,8 +174,10 @@ func handleMethod(method string, request []byte) ([]byte, error) {
 		configure(request)
 		return okEnvelope(registration())
 	case pluginabi.MethodModelRegister:
+		maybeRefreshModels()
 		return okEnvelope(pluginapi.ModelRegistrationResponse{Provider: ProviderKey, Models: registeredModels()})
 	case pluginabi.MethodModelStatic, pluginabi.MethodModelForAuth:
+		maybeRefreshModels()
 		return okEnvelope(pluginapi.ModelResponse{Provider: ProviderKey, Models: registeredModels()})
 	case pluginabi.MethodModelRoute:
 		return okEnvelope(routeModel(request))

@@ -1,0 +1,668 @@
+{
+  "schema_version": 1,
+  "source": "command-code CLI bundle (XR catalog + plan gating)",
+  "source_cli_version": "1.44.0",
+  "fetched_at": "2026-09-10T08:42:42Z",
+  "counts": {
+    "catalog": 71,
+    "opensource": 47,
+    "premium": 17,
+    "uncategorized": 7,
+    "blocked": 6,
+    "synthesized": 0,
+    "dropped": 1,
+    "entitled": 48
+  },
+  "blocked_models": [
+    "openrouter:google/gemini-3.7-flash",
+    "vercel-ai-gateway:google/gemini-3.8-flash",
+    "vercel-ai-gateway:gpt-5.6-sol",
+    "vercel-ai-gateway:meta/muse-spark-1.2",
+    "vercel-ai-gateway:meta/muse-spark-1.3",
+    "vercel-ai-gateway:xai/grok-4.6"
+  ],
+  "models": [
+    {
+      "id": "deepseek/deepseek-v4-flash",
+      "display": "DeepSeek V4 Flash",
+      "description": "fast hybrid-attention reasoning",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [
+        "high",
+        "max"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "deepseek/deepseek-v4-flash-fast",
+      "display": "DeepSeek V4 Flash Fast",
+      "description": "low-latency V4 Flash deployment",
+      "context": 1000000,
+      "output": 65536,
+      "category": null,
+      "vision": false,
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "deepseek/deepseek-v4-flash-vision-exp",
+      "display": "DeepSeek V4 Flash Vision (exp)",
+      "description": "fast hybrid-attention reasoning with vision",
+      "context": 1000000,
+      "output": 65536,
+      "category": null,
+      "vision": true,
+      "reasoning_efforts": [
+        "high",
+        "max"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "deepseek/deepseek-v4-pro",
+      "display": "DeepSeek V4 Pro",
+      "description": "hybrid-attention long-context reasoning",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [
+        "high",
+        "max"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "google/gemini-3.5-flash-lite",
+      "display": "Gemini 3.5 Flash Lite",
+      "description": "upgraded agentic capabilities, ideal for subagents",
+      "context": 1000000,
+      "output": 65536,
+      "category": null,
+      "vision": true,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "google/gemini-3.6-flash",
+      "display": "Gemini 3.6 Flash",
+      "description": "previous Gemini Flash, still fast & capable",
+      "context": 1000000,
+      "output": 65536,
+      "category": null,
+      "vision": true,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "display": "GPT-5.6 Luna",
+      "description": "optimized for cost-sensitive workloads",
+      "context": 1050000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "inclusionai/ling-3.0-flash-free",
+      "display": "Ling 3.0 Flash",
+      "description": "fast lightweight-MoE coding & agentic work",
+      "context": 256000,
+      "output": 32768,
+      "category": null,
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": "free",
+      "hidden": false
+    },
+    {
+      "id": "meituan/LongCat-2.0:free",
+      "display": "LongCat 2.0",
+      "description": "trillion-parameter agentic coding with 1M context",
+      "context": 1048576,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": "free",
+      "hidden": false
+    },
+    {
+      "id": "meta/muse-spark-1.2-contributor",
+      "display": "Muse Spark 1.2 Contributor",
+      "description": "Muse Spark 1.2 at ~95% off",
+      "context": 1048576,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "meta/muse-spark-1.3-contributor",
+      "display": "Muse Spark 1.3 Contributor",
+      "description": "Muse Spark 1.3 at up to 95% off",
+      "context": 1048576,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "minimax/minimax-m2.7-free",
+      "display": "MiniMax M2.7",
+      "description": "end-to-end software engineering agent",
+      "context": 197000,
+      "output": 32768,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": "free",
+      "hidden": true
+    },
+    {
+      "id": "minimax/minimax-m3-free",
+      "display": "MiniMax M3",
+      "description": "frontier coding, agents & native multimodality",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": "free",
+      "hidden": true
+    },
+    {
+      "id": "MiniMaxAI/MiniMax-M2.5",
+      "display": "MiniMax M2.5",
+      "description": "cross-platform full-stack agentic dev",
+      "context": 200000,
+      "output": 32768,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "MiniMaxAI/MiniMax-M2.7",
+      "display": "MiniMax M2.7",
+      "description": "end-to-end software engineering agent",
+      "context": 200000,
+      "output": 32768,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "MiniMaxAI/MiniMax-M3",
+      "display": "MiniMax M3",
+      "description": "frontier coding, agents & native multimodality",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "moonshotai/Kimi-K2.5",
+      "display": "Kimi K2.5",
+      "description": "multimodal frontend coding",
+      "context": 256000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "moonshotai/Kimi-K2.6",
+      "display": "Kimi K2.6",
+      "description": "long-horizon coding with vision",
+      "context": 256000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "moonshotai/Kimi-K2.7-Code",
+      "display": "Kimi K2.7 Code",
+      "description": "improved long-horizon coding with vision",
+      "context": 256000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "moonshotai/Kimi-K2.7-Code-Highspeed",
+      "display": "Kimi K2.7 Code HighSpeed",
+      "description": "high-speed long-horizon coding with vision",
+      "context": 262000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "moonshotai/Kimi-K3",
+      "display": "Kimi K3",
+      "description": "long-horizon coding & knowledge work with 1M context",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "nvidia/nemotron-3-ultra-550b-a55b",
+      "display": "Nemotron 3 Ultra",
+      "description": "open reasoning model for long-horizon autonomous agents",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "poolside/laguna-s-2.1-free",
+      "display": "Laguna S 2.1",
+      "description": "open-weight agentic coding and long-horizon work",
+      "context": 256000,
+      "output": 32768,
+      "category": null,
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": "free",
+      "hidden": false
+    },
+    {
+      "id": "Qwen/Qwen3.6-Max-Preview",
+      "display": "Qwen 3.6 Max Preview",
+      "description": "vibe coding & efficient agent execution",
+      "context": 200000,
+      "output": 32768,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "Qwen/Qwen3.6-Plus",
+      "display": "Qwen 3.6 Plus",
+      "description": "agentic coding & reasoning",
+      "context": 200000,
+      "output": 32768,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "Qwen/Qwen3.7-Flash",
+      "display": "Qwen 3.7 Flash",
+      "description": "fast low-cost agentic coding & reasoning",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "Qwen/Qwen3.7-Max",
+      "display": "Qwen 3.7 Max",
+      "description": "frontier coding & long-horizon agent execution",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "Qwen/Qwen3.7-Plus",
+      "display": "Qwen 3.7 Plus",
+      "description": "agentic coding & reasoning at lower cost",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "Qwen/Qwen3.8-27B",
+      "display": "Qwen 3.8 27B",
+      "description": "compact vision-language coding & agentic work",
+      "context": 262144,
+      "output": 32768,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "xhigh"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "Qwen/Qwen3.8-Flash",
+      "display": "Qwen 3.8 Flash",
+      "description": "fast low-cost agentic coding & reasoning",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "xhigh"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "Qwen/Qwen3.8-Max",
+      "display": "Qwen 3.8 Max",
+      "description": "autonomous long-horizon coding & professional work",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "xhigh"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "Qwen/Qwen3.8-Max-0902",
+      "display": "Qwen 3.8 Max 0902",
+      "description": "upgraded Qwen 3.8 Max: stronger coding & agentic tool use",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "xhigh"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "stepfun/Step-3.5-Flash",
+      "display": "Step 3.5 Flash",
+      "description": "fast sparse-MoE agentic reasoning",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "stepfun/Step-3.7-Flash",
+      "display": "Step 3.7 Flash",
+      "description": "multimodal sparse-MoE reasoning",
+      "context": 256000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "tencent/Hy3",
+      "display": "Tencent Hy3 (Free)",
+      "description": "sparse-MoE reasoning & agentic tool use",
+      "context": 262144,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": "free",
+      "hidden": true
+    },
+    {
+      "id": "tencent/hy3-paid",
+      "display": "Tencent Hy3",
+      "description": "sparse-MoE reasoning & agentic tool use",
+      "context": 262144,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "tencent/hy4-preview",
+      "display": "Tencent Hy4 Preview",
+      "description": "agentic coding & sustained multi-step tool use",
+      "context": 1048576,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "thinkingmachines/inkling",
+      "display": "Inkling",
+      "description": "multimodal MoE reasoning",
+      "context": 256000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "thinkingmachines/inkling-small",
+      "display": "Inkling Small",
+      "description": "lightweight MoE reasoning at lower cost and latency",
+      "context": 1000000,
+      "output": 65536,
+      "category": null,
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "xai/grok-4.5",
+      "display": "Grok 4.5",
+      "description": "smartest model for coding, agentic tasks, knowledge work",
+      "context": 500000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "xiaomi/mimo-v2.5",
+      "display": "MiMo V2.5",
+      "description": "efficient long-context agentic coding",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "xiaomi/mimo-v2.5-pro",
+      "display": "MiMo V2.5 Pro",
+      "description": "high-capability long-context agentic coding",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "z-ai/glm-5.3-flash",
+      "display": "GLM-5.3 Flash",
+      "description": "fast, affordable GLM coding with 1M context",
+      "context": 1048576,
+      "output": 131072,
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "zai-org/GLM-5",
+      "display": "GLM-5",
+      "description": "multi-mode thinking & long-range planning",
+      "context": 200000,
+      "output": 32768,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "zai-org/GLM-5.1",
+      "display": "GLM-5.1",
+      "description": "long-horizon autonomous coding agent",
+      "context": 200000,
+      "output": 32768,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "zai-org/GLM-5.2",
+      "display": "GLM-5.2",
+      "description": "powerful coding with 1M context and long-horizon tasks",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [
+        "high",
+        "max"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "zai-org/GLM-5.2-Fast",
+      "display": "GLM-5.2 Fast",
+      "description": "high-throughput GLM-5.2 with 1M context",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": null,
+      "hidden": false
+    },
+    {
+      "id": "zai-org/GLM-5.3",
+      "display": "GLM-5.3",
+      "description": "frontier coding with emergent cyber capabilities",
+      "context": 1000000,
+      "output": 65536,
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "badge": null,
+      "hidden": false
+    }
+  ]
+}

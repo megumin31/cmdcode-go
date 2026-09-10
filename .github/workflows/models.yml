@@ -1,0 +1,63 @@
+name: models
+
+# Keeps models.json (and the compiled fallback table) in sync with the
+# latest official CLI release. The Go plan has no server-side model-list
+# endpoint, so the roster is extracted from the CLI bundle's static
+# catalog (see scripts/extract-models.py).
+#
+# - models.json is the data contract the plugin fetches at runtime
+#   (models_url). Committed to main so raw.githubusercontent.com serves it.
+# - go/models_generated.go is regenerated from the same run and committed
+#   alongside, so builds carry a fresh fallback even for offline users.
+# - `go test` runs before any commit: a broken extraction or a
+#   non-compiling table fails the job instead of landing on main.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install latest official CLI
+        run: |
+          npm install -g command-code@latest
+          command-code --version || cmd --version || true
+
+      - name: Extract model roster
+        run: |
+          CLI="$(npm root -g)/command-code/dist/cli.mjs"
+          PKG="$(npm root -g)/command-code/package.json"
+          python3 scripts/extract-models.py \
+            --cli "$CLI" --package "$PKG" \
+            --prev models.json --out models.json \
+            --gen go/models_generated.go
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+
+      - name: Vet and test
+        run: |
+          cd go
+          gofmt -l .
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+
+      - name: Commit refreshed roster
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(models): refresh roster from command-code@latest"
+          file_pattern: "models.json go/models_generated.go"

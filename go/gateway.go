@@ -260,7 +260,7 @@ func maxTokens(chat chatRequest, upstreamModel string) int {
 // id, or 0 when the model is unknown so callers keep the requested budget
 // and let the gateway report the authoritative error.
 func modelOutputCap(canonical string) int {
-	for _, def := range modelTable {
+	for _, def := range activeModelTable() {
 		if def.id == canonical {
 			return int(def.output)
 		}

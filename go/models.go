@@ -7,12 +7,15 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
-// Go-plan model roster. Canonical gateway ids served over /alpha/generate:
-// the open-weight family plus the documented premium exceptions
-// (GPT-5.6 Luna, Grok 4.5, Qwen Max/Plus, Muse Spark contributors).
-// Context/output numbers follow the CLI model registry; unknown entries err
-// on the side of 256K/64K. The list is intentionally static so model
-// registration never depends on network access.
+// Go-plan model roster. Canonical gateway ids served over /alpha/generate.
+// The compiled modelTable (go/models_generated.go, extracted from the
+// official CLI bundle by scripts/extract-models.py) is the fallback; at
+// runtime maybeRefreshModels() may replace it with the Action-maintained
+// models.json when the operator configures models_url/models_file and the
+// payload validates. All lookups below go through activeModelTable so the
+// two sources never diverge in behavior. Context/output numbers track the
+// CLI registry; output budgets for entries the bundle leaves unspecified
+// are carried forward by the extractor.
 type modelDef struct {
 	id      string
 	display string
@@ -20,54 +23,9 @@ type modelDef struct {
 	output  int64
 }
 
-var modelTable = []modelDef{
-	{"deepseek/deepseek-v4-flash", "DeepSeek V4 Flash", 1048576, 131072},
-	{"deepseek/deepseek-v4-flash-fast", "DeepSeek V4 Flash Fast", 1000000, 131072},
-	{"deepseek/deepseek-v4-flash-vision-exp", "DeepSeek V4 Flash Vision (exp)", 1000000, 131072},
-	{"deepseek/deepseek-v4-pro", "DeepSeek V4 Pro", 1048576, 131072},
-	{"moonshotai/Kimi-K3", "Kimi K3", 1048576, 65536},
-	{"moonshotai/Kimi-K2.7-Code", "Kimi K2.7 Code", 262144, 65536},
-	{"moonshotai/Kimi-K2.7-Code-Highspeed", "Kimi K2.7 Code HighSpeed", 262144, 65536},
-	{"moonshotai/Kimi-K2.6", "Kimi K2.6", 262144, 65536},
-	{"moonshotai/Kimi-K2.5", "Kimi K2.5", 262144, 65536},
-	{"zai-org/GLM-5.3", "GLM 5.3", 1000000, 131072},
-	{"z-ai/glm-5.3-flash", "GLM 5.3 Flash", 1048576, 65536},
-	{"zai-org/GLM-5.2", "GLM 5.2", 1048576, 131072},
-	{"zai-org/GLM-5.2-Fast", "GLM 5.2 Fast", 1048576, 65536},
-	{"zai-org/GLM-5.1", "GLM 5.1", 204800, 32768},
-	{"zai-org/GLM-5", "GLM 5", 204800, 32768},
-	{"MiniMaxAI/MiniMax-M3", "MiniMax M3", 1048576, 131072},
-	{"MiniMaxAI/MiniMax-M2.7", "MiniMax M2.7", 204800, 65536},
-	{"MiniMaxAI/MiniMax-M2.5", "MiniMax M2.5", 204800, 65536},
-	{"xiaomi/mimo-v2.5-pro", "MiMo V2.5 Pro", 1048576, 131072},
-	{"xiaomi/mimo-v2.5", "MiMo V2.5", 1048576, 131072},
-	{"Qwen/Qwen3.8-Max", "Qwen 3.8 Max", 1000000, 131072},
-	{"Qwen/Qwen3.8-Max-0902", "Qwen 3.8 Max 0902", 1000000, 131072},
-	{"Qwen/Qwen3.8-27B", "Qwen 3.8 27B", 262144, 65536},
-	{"Qwen/Qwen3.8-Flash", "Qwen 3.8 Flash", 1000000, 131072},
-	{"Qwen/Qwen3.7-Max", "Qwen 3.7 Max", 1048576, 131072},
-	{"Qwen/Qwen3.7-Plus", "Qwen 3.7 Plus", 1048576, 131072},
-	{"Qwen/Qwen3.7-Flash", "Qwen 3.7 Flash", 1000000, 131072},
-	{"Qwen/Qwen3.6-Max-Preview", "Qwen 3.6 Max Preview", 204800, 32768},
-	{"Qwen/Qwen3.6-Plus", "Qwen 3.6 Plus", 204800, 32768},
-	{"stepfun/Step-3.7-Flash", "Step 3.7 Flash", 262144, 65536},
-	{"stepfun/Step-3.5-Flash", "Step 3.5 Flash", 1048576, 65536},
-	{"tencent/hy3-paid", "Tencent Hy3", 262144, 65536},
-	{"tencent/hy4-preview", "Tencent Hy4 Preview", 1048576, 131072},
-	{"nvidia/nemotron-3-ultra-550b-a55b", "Nemotron 3 Ultra", 1048576, 131072},
-	{"thinkingmachines/inkling", "Inkling", 262144, 65536},
-	{"thinkingmachines/inkling-small", "Inkling Small", 1000000, 65536},
-	{"meituan/LongCat-2.0:free", "LongCat 2.0 (free)", 1048576, 131072},
-	{"poolside/laguna-s-2.1-free", "Laguna S 2.1 (free)", 256000, 65536},
-	{"gpt-5.6-luna", "GPT-5.6 Luna", 1050000, 131072},
-	{"xai/grok-4.5", "Grok 4.5", 500000, 131072},
-	{"meta/muse-spark-1.2-contributor", "Muse Spark 1.2 Contributor", 262144, 65536},
-	{"meta/muse-spark-1.3-contributor", "Muse Spark 1.3 Contributor", 1048576, 65536},
-}
-
 func registeredModels() []pluginapi.ModelInfo {
-	models := make([]pluginapi.ModelInfo, 0, len(modelTable))
-	for _, def := range modelTable {
+	models := make([]pluginapi.ModelInfo, 0, len(activeModelTable()))
+	for _, def := range activeModelTable() {
 		if !modelAllowed(def.id) {
 			continue
 		}
@@ -130,13 +88,13 @@ func matchModel(name string) (string, bool) {
 			break
 		}
 	}
-	for _, def := range modelTable {
+	for _, def := range activeModelTable() {
 		if strings.EqualFold(def.id, trimmed) {
 			return def.id, true
 		}
 	}
 	if !strings.Contains(trimmed, "/") {
-		for _, def := range modelTable {
+		for _, def := range activeModelTable() {
 			short := def.id[strings.LastIndex(def.id, "/")+1:]
 			if strings.EqualFold(short, trimmed) {
 				return def.id, true
@@ -171,6 +129,9 @@ func registration() map[string]any {
 				{"Name": "cli_version", "Type": "string", "Description": "x-command-code-version fingerprint. Default tracks the reversed CLI release."},
 				{"Name": "project_slug", "Type": "string", "Description": "x-project-slug fingerprint header."},
 				{"Name": "permission_mode", "Type": "string", "Description": "Envelope permissionMode. Default standard."},
+				{"Name": "models_url", "Type": "string", "Description": "Remote models.json URL (Action-maintained). Default tracks this repo's main branch; empty = default."},
+				{"Name": "models_file", "Type": "string", "Description": "Local models.json path override (reloaded on change). Takes precedence over models_url."},
+				{"Name": "models_refresh_interval", "Type": "string", "Description": "Remote refresh interval (Go duration, default 24h; 0 disables remote refresh)."},
 			},
 		},
 		"capabilities": map[string]any{

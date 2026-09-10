@@ -12,13 +12,16 @@ import (
 const ProviderKey = "cmdcode-go"
 
 type pluginConfig struct {
-	APIKey        string   `json:"api_key"`
-	BaseURL       string   `json:"base_url"`
-	CLIVersion    string   `json:"cli_version"`
-	ProjectSlug   string   `json:"project_slug"`
-	Permission    string   `json:"permission_mode"`
-	Models        []string `json:"models"`
-	DisableModels []string `json:"disable_models"`
+	APIKey                string   `json:"api_key"`
+	BaseURL               string   `json:"base_url"`
+	CLIVersion            string   `json:"cli_version"`
+	ProjectSlug           string   `json:"project_slug"`
+	Permission            string   `json:"permission_mode"`
+	Models                []string `json:"models"`
+	DisableModels         []string `json:"disable_models"`
+	ModelsURL             string   `json:"models_url"`
+	ModelsFile            string   `json:"models_file"`
+	ModelsRefreshInterval string   `json:"models_refresh_interval"`
 }
 
 var configMu sync.RWMutex
@@ -75,6 +78,12 @@ func configure(request []byte) {
 		case "disable_models":
 			next.DisableModels = parseModelList(value)
 			listTarget = &next.DisableModels
+		case "models_url":
+			next.ModelsURL = value
+		case "models_file":
+			next.ModelsFile = value
+		case "models_refresh_interval":
+			next.ModelsRefreshInterval = value
 		}
 	}
 	setConfig(next)
