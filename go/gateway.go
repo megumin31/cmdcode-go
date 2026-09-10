@@ -50,11 +50,13 @@ type chatRequest struct {
 	ReasoningEffort     *string       `json:"reasoning_effort"`
 }
 type chatMessage struct {
-	Role       string         `json:"role"`
-	Content    any            `json:"content"`
-	ToolCalls  []chatToolCall `json:"tool_calls"`
-	ToolCallID string         `json:"tool_call_id"`
-	Name       string         `json:"name"`
+	Role             string         `json:"role"`
+	Content          any            `json:"content"`
+	ToolCalls        []chatToolCall `json:"tool_calls"`
+	ToolCallID       string         `json:"tool_call_id"`
+	Name             string         `json:"name"`
+	ReasoningContent any            `json:"reasoning_content"`
+	Reasoning        any            `json:"reasoning"`
 }
 
 type chatTool struct {
@@ -286,6 +288,9 @@ func toWireMessages(messages []chatMessage) (string, []any) {
 			}
 		case "assistant":
 			parts := []any{}
+			if reasoning := messageReasoning(msg); reasoning != "" {
+				parts = append(parts, map[string]any{"type": "reasoning", "text": reasoning})
+			}
 			if text := messageText(msg.Content); text != "" {
 				parts = append(parts, map[string]any{"type": "text", "text": text})
 			}
@@ -341,6 +346,103 @@ func toWireMessages(messages []chatMessage) (string, []any) {
 func messageText(content any) string {
 	texts, _ := messageRichText(content)
 	return strings.Join(texts, "")
+}
+
+// messageReasoning collects thinking-channel text for an assistant turn.
+// Thinking models (deepseek-v4.1-flash and kin) reject multi-turn history
+// that drops it ("reasoning_content in the thinking mode must be passed
+// back"), so every spelling the ecosystem emits is accepted: top-level
+// reasoning_content / reasoning (string, {text/content/reasoning_content}
+// object, or array of such), plus content-array parts typed reasoning,
+// reasoning_content, thinking, or reasoning_text.
+func messageReasoning(msg chatMessage) string {
+	var sb strings.Builder
+	if s := reasoningFieldText(msg.ReasoningContent); s != "" {
+		sb.WriteString(s)
+	}
+	if s := reasoningFieldText(msg.Reasoning); s != "" {
+		if sb.Len() > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(s)
+	}
+	if s := contentReasoningText(msg.Content); s != "" {
+		if sb.Len() > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(s)
+	}
+	return sb.String()
+}
+
+// contentReasoningText extracts reasoning text embedded in a content array.
+func contentReasoningText(content any) string {
+	parts, ok := content.([]any)
+	if !ok {
+		return ""
+	}
+	var sb strings.Builder
+	for _, item := range parts {
+		part, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		typ, _ := part["type"].(string)
+		switch typ {
+		case "reasoning", "reasoning_content", "reasoning_text", "thinking":
+			if s := reasoningPartText(part); s != "" {
+				if sb.Len() > 0 {
+					sb.WriteString("\n")
+				}
+				sb.WriteString(s)
+			}
+		}
+	}
+	return sb.String()
+}
+
+// reasoningPartText reads one content-array reasoning part. Providers disagree
+// on the payload key (text, content, reasoning_content, reasoning), so try
+// them in order before falling back to nested objects.
+func reasoningPartText(part map[string]any) string {
+	for _, key := range []string{"text", "content", "reasoning_content", "reasoning", "thinking"} {
+		if s := reasoningFieldText(part[key]); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// reasoningFieldText coerces a reasoning-typed JSON value to plain text.
+func reasoningFieldText(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case []any:
+		var sb strings.Builder
+		for _, item := range t {
+			if s := reasoningFieldText(item); s != "" {
+				if sb.Len() > 0 {
+					sb.WriteString("\n")
+				}
+				sb.WriteString(s)
+			}
+		}
+		return sb.String()
+	case map[string]any:
+		for _, key := range []string{"text", "content", "reasoning_content", "reasoning", "thinking", "value"} {
+			if raw, ok := t[key]; ok {
+				if s := reasoningFieldText(raw); s != "" {
+					return s
+				}
+			}
+		}
+		return ""
+	default:
+		return ""
+	}
 }
 
 func messageRichText(content any) ([]string, []any) {
@@ -826,6 +928,9 @@ func (a *accumulated) openAIToolCalls() []any {
 // echoes the client-requested model so host accounting stays consistent.
 func (a *accumulated) toOpenAIResponse(model string) []byte {
 	message := map[string]any{"role": "assistant", "content": a.text.String()}
+	if r := a.reasoning.String(); r != "" {
+		message["reasoning_content"] = r
+	}
 	if calls := a.openAIToolCalls(); len(calls) > 0 {
 		message["tool_calls"] = calls
 	}

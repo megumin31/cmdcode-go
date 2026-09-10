@@ -911,3 +911,58 @@ func TestConfigureRosterKeys(t *testing.T) {
 		t.Fatalf("roster config = %+v", cfg)
 	}
 }
+
+func TestWireForwardsReasoningContent(t *testing.T) {
+	env := mustEnvelope(t, `{"model":"m","messages":[
+		{"role":"user","content":"hi"},
+		{"role":"assistant","content":"done","reasoning_content":"let me think"},
+		{"role":"user","content":"continue"}]}`)
+	messages := paramsOf(t, env)["messages"].([]any)
+	if len(messages) != 3 {
+		t.Fatalf("messages = %v, want 3", messages)
+	}
+	assistant := messages[1].(map[string]any)
+	parts := assistant["content"].([]any)
+	if len(parts) == 0 || parts[0].(map[string]any)["type"] != "reasoning" {
+		t.Fatalf("first part = %v, want reasoning", parts)
+	}
+	if parts[0].(map[string]any)["text"] != "let me think" {
+		t.Fatalf("reasoning part = %v", parts[0])
+	}
+}
+
+func TestWireForwardsReasoningVariants(t *testing.T) {
+	env := mustEnvelope(t, `{"model":"m","messages":[
+		{"role":"assistant","content":[{"type":"reasoning","text":"r1"},{"type":"text","text":"hi"}]},
+		{"role":"assistant","content":null,"reasoning":{"text":"r2"}}]}`)
+	messages := paramsOf(t, env)["messages"].([]any)
+	if len(messages) != 2 {
+		t.Fatalf("messages = %v, want 2", messages)
+	}
+	for i, want := range []string{"r1", "r2"} {
+		parts := messages[i].(map[string]any)["content"].([]any)
+		if len(parts) == 0 || parts[0].(map[string]any)["type"] != "reasoning" {
+			t.Fatalf("msg %d parts = %v, want reasoning first", i, parts)
+		}
+		if parts[0].(map[string]any)["text"] != want {
+			t.Fatalf("msg %d reasoning = %v, want %q", i, parts[0], want)
+		}
+	}
+}
+
+func TestNonStreamResponseKeepsReasoning(t *testing.T) {
+	acc := &accumulated{finish: "stop"}
+	acc.reasoning.WriteString("thinking trace")
+	acc.text.WriteString("final")
+	var resp map[string]any
+	if err := json.Unmarshal(acc.toOpenAIResponse("m"), &resp); err != nil {
+		t.Fatal(err)
+	}
+	msg := resp["choices"].([]any)[0].(map[string]any)["message"].(map[string]any)
+	if msg["reasoning_content"] != "thinking trace" {
+		t.Fatalf("message = %v, want reasoning_content preserved", msg)
+	}
+	if msg["content"] != "final" {
+		t.Fatalf("message content = %v", msg["content"])
+	}
+}
