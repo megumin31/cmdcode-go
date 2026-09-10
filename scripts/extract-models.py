@@ -19,9 +19,14 @@ Outputs:
   --gen go/models_generated.go  compiled fallback table (var modelTable).
 
 Output budgets: the bundle carries maxOutputTokens for only a handful of
-entries, so budgets resolve as: bundle value > carried value from --prev
-models.json (same id, case-insensitive) > 32768 when context <= 204800 >
-65536. Display names drop the trailing " (latest)" suffix (release noise).
+entries, so budgets resolve as: bundle value > models.dev [limit].output
+(--models-dev, anomalyco/models.dev canonical data) > carried value from
+--prev models.json (same id, case-insensitive) > 32768 when context <=
+204800 > 65536. Contexts resolve as Tr override > XR contextWindow >
+models.dev limit.context (only when the CLI itself falls back to its
+200000 default) > 200000. Every entry records output_source/context_source
+so each number is auditable. Display names drop the trailing " (latest)"
+suffix (release noise).
 
 Anchors are literal markers (inputModalities, allowedCategories,
 blockedModels, "opensource"/"premium"); minified variable names are
@@ -206,6 +211,68 @@ def parse_context_table(bundle):
         warn("Tr context table partially unparseable")
         return {}
 
+def load_models_dev(root):
+    """Index anomalyco/models.dev canonical limits by normalized stem.
+
+    Returns {norm_stem: [(relpath, output, context)]}. Entries without a
+    [limit] table are skipped: models.dev also leaves blanks, and those
+    fall through to the carry/heuristic chain.
+    """
+    index = {}
+    try:
+        import tomllib
+    except ImportError:
+        warn("tomllib unavailable, models.dev disabled")
+        return index
+    files = sorted(Path(root).rglob("*.toml"))
+    if not files:
+        warn(f"no models.dev TOML under {root}")
+    for path in files:
+        try:
+            doc = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            warn(f"models.dev unreadable {path}: {e}")
+            continue
+        lim = doc.get("limit") or {}
+        try:
+            output = int(lim["output"]) if lim.get("output") else 0
+            context = int(lim["context"]) if lim.get("context") else 0
+        except (ValueError, TypeError):
+            warn(f"models.dev bad limit {path}")
+            continue
+        if not output and not context:
+            continue
+        rel = str(path.relative_to(root))
+        index.setdefault(norm_id(path.stem), []).append((rel, output, context))
+    return index
+
+
+def norm_id(s):
+    return re.sub(r"[-_.:/ ]+", "", s.lower())
+
+
+def match_models_dev(index, gateway_id):
+    """Match a gateway id to one models.dev entry.
+
+    Exact normalized stem first; a single trailing -free fallback covers
+    free-tier aliases of the same deployment (ling-3.0-flash-fin style
+    near-misses stay unmatched by design). Ambiguous matches are
+    dropped loudly.
+    """
+    short = gateway_id.split("/")[-1].split(":")[0]
+    cands = index.get(norm_id(short), [])
+    if len(cands) == 1:
+        return cands[0] + ("exact",)
+    if not cands and short.lower().endswith("-free"):
+        base = short[: -len("-free")]
+        cands = index.get(norm_id(base), [])
+        if len(cands) == 1:
+            return cands[0] + ("free-variant",)
+    if len(cands) > 1:
+        warn(f"{gateway_id}: ambiguous models.dev matches, skipped: "
+             f"{[c[0] for c in cands]}")
+    return None
+
 
 def display_name(entry):
     label = entry.get("label") or entry.get("name") or entry["id"]
@@ -228,6 +295,11 @@ def main():
     ap.add_argument("--package", default="", help="path to package.json")
     ap.add_argument("--cli-version", default="", help="override version")
     ap.add_argument("--prev", default="", help="previous models.json")
+    ap.add_argument("--models-dev", default="",
+                    help="anomalyco/models.dev models/ dir for limits "
+                         "the CLI bundle leaves unspecified")
+    ap.add_argument("--models-dev-rev", default="",
+                    help="models.dev revision recorded for provenance")
     ap.add_argument("--out", required=True, help="models.json output path")
     ap.add_argument("--gen", required=True, help="models_generated.go path")
     args = ap.parse_args()
@@ -288,26 +360,26 @@ def main():
     if not catalog:
         fail("no catalog entries parsed")
     ctx_table = parse_context_table(bundle)
-
+    md_index = load_models_dev(args.models_dev) if args.models_dev else {}
+    md_rev = args.models_dev_rev
     def resolve_context(mid, entry):
         if mid in ctx_table:
-            return ctx_table[mid]
+            return ctx_table[mid], False
         if entry and entry["context"]:
-            return entry["context"]
+            return entry["context"], False
         # Case drift between maps (MiniMaxAI/ vs minimax/) is real;
         # retry case-insensitively before falling back to Er.
         lowered = mid.lower()
         for key, val in ctx_table.items():
             if key.lower() == lowered:
-                return val
-        return DEFAULT_CONTEXT
-
+                return val, False
+        return DEFAULT_CONTEXT, True
     counts = {"catalog": len(catalog)}
     for key in ("opensource", "premium", "uncategorized"):
         counts[key] = 0
     counts["blocked"] = 0
     counts["synthesized"] = 0
-
+    counts["modelsdev"] = 0
     # Categorized but absent from the XR catalog (no label/context of its
     # own): synthesize from the Tr table so an entitled model is never
     # dropped for lack of display metadata.
@@ -352,21 +424,45 @@ def main():
             counts["blocked"] += 1
             continue
         e = catalog[mid]
-        context = resolve_context(mid, e)
+        context, ctx_default = resolve_context(mid, e)
+        context_source = "cli"
+        md = match_models_dev(md_index, mid) if md_index else None
+        md_output, md_context, md_ref, md_kind = ((md[1], md[2], md[0], md[3])
+                                                 if md else (0, 0, "", ""))
+        if ctx_default and md_context:
+            context, context_source = md_context, "modelsdev"
+        elif ctx_default:
+            context_source = "default"
         if e["max_output"]:
-            output = e["max_output"]
-        elif mid.lower() in prev_budgets:
-            output = prev_budgets[mid.lower()]
-        elif context <= SMALL_CONTEXT_MAX:
-            output = SMALL_CONTEXT_OUTPUT
+            output, output_source = e["max_output"], "bundle"
+        # Coherence guard with unit tolerance: sources mix decimal and
+        # binary K/M (262144 vs 256000 is the same 256K), so allow 5%.
+        elif md_output and md_output <= int(context * 1.05):
+            output, output_source = md_output, "modelsdev"
+        elif md_output:
+            warn(f"{mid}: models.dev output {md_output} exceeds context "
+                 f"{context}, ignored ({md_ref})")
+            output, output_source = None, ""
         else:
-            output = DEFAULT_OUTPUT
+            output, output_source = None, ""
+        if not output_source:
+            if mid.lower() in prev_budgets:
+                output, output_source = prev_budgets[mid.lower()], "carry"
+            elif context <= SMALL_CONTEXT_MAX:
+                output, output_source = SMALL_CONTEXT_OUTPUT, "heuristic"
+            else:
+                output, output_source = DEFAULT_OUTPUT, "heuristic"
+        if output_source == "modelsdev" or context_source == "modelsdev":
+            counts["modelsdev"] += 1
         models.append({
             "id": mid,
             "display": display_name(e),
             "description": e.get("description", ""),
             "context": context,
+            "context_source": context_source,
             "output": output,
+            "output_source": output_source,
+            "output_ref": md_ref if output_source == "modelsdev" else "",
             "category": cat,
             "vision": e["vision"],
             "reasoning_efforts": e["efforts"],
@@ -386,18 +482,21 @@ def main():
 
     fetched_at = datetime.datetime.now(datetime.timezone.utc).strftime(
         "%Y-%m-%dT%H:%M:%SZ")
+    rev = md_rev
     if (prev_doc and prev_doc.get("schema_version") == SCHEMA_VERSION
             and prev_doc.get("source_cli_version") == version
             and prev_doc.get("models") == models):
         # Byte-identical output: the scheduled Action becomes a no-op
         # instead of churning fetched_at every day.
         fetched_at = prev_doc.get("fetched_at", fetched_at)
+        rev = prev_doc.get("models_dev_rev", rev)
         print("extract-models: roster unchanged, keeping " + fetched_at,
               file=sys.stderr)
     doc = {
         "schema_version": SCHEMA_VERSION,
         "source": "command-code CLI bundle (XR catalog + plan gating)",
         "source_cli_version": version,
+        "models_dev_rev": rev,
         "fetched_at": fetched_at,
         "counts": counts,
         "blocked_models": sorted(blocked),
@@ -409,7 +508,7 @@ def main():
         f"{version}. DO NOT EDIT.",
         "//",
         "//\tRegenerate: python3 scripts/extract-models.py --cli <npm-root>/command-code/dist/cli.mjs \\",
-        "//\t  --package <npm-root>/command-code/package.json --prev models.json --out models.json --gen go/models_generated.go",
+        "//\t  --package <npm-root>/command-code/package.json --prev models.json --models-dev <models.dev>/models --out models.json --gen go/models_generated.go",
         "package main",
         "",
         "var modelTable = []modelDef{",
@@ -426,7 +525,8 @@ def main():
     print(f"extract-models: cli={version} entitled={len(models)} "
           f"catalog={counts['catalog']} premium={counts['premium']} "
           f"uncategorized={counts['uncategorized']} "
-          f"blocked={counts['blocked']}", file=sys.stderr)
+          f"blocked={counts['blocked']} modelsdev={counts['modelsdev']}",
+          file=sys.stderr)
 
 
 if __name__ == "__main__":

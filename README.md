@@ -9,7 +9,7 @@ Unofficial [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin th
 - **Executor** (`both` scope, `chat-completions` in/out): OpenAI chat → gateway NDJSON (`text-delta` / `reasoning-*` / `tool-call` / `finish` / `error` / `abort`) → OpenAI response. Reasoning travels as OpenRouter-style `reasoning_content` deltas so strict OpenAI clients keep working.
 - **Streaming + buffered**: incremental SSE relay chunk-by-chunk; non-streaming calls are served by consuming the NDJSON server-side. Hosts without stream ids get a buffered fallback.
 - **`response_before_translator`**: adds the missing `data:` prefix for OpenAI→Claude translation (that converter drops unprefixed payloads; the OpenAI HTTP layer frames itself, so raw JSON is required there).
-- **`model_registrar` + `model_provider`**: Go-plan roster extracted from the official CLI bundle (see `models.json` for the current list). A daily [Action](.github/workflows/models.yml) refreshes it from `command-code@latest`; the plugin picks it up via `models_url` (24h TTL) with the compiled table as offline fallback — registration never needs the CLI installed.
+- **`model_registrar` + `model_provider`**: Go-plan roster extracted from the official CLI bundle (see `models.json` for the current list). An [Action](.github/workflows/models.yml) refreshes it from `command-code@latest` every 6 hours; the plugin picks it up via `models_url` (6h TTL) with the compiled table as offline fallback — registration never needs the CLI installed.
 - **`model_router`**: claims `cmdcode-go/<id>`, canonical and short names; everything else falls through to other providers.
 - **Tool round-trip**: tool schemas are coerced to the `{type: object}` record the gateway demands (null/missing schemas become `{"type":"object","properties":{}}` instead of failing the turn); `tool_choice: none` strips tools.
 - **Usage accounting**: `usage` is always present on both paths. When a `finish` event omits `totalUsage`, downstream gets zeros (the official CLI harness default), never null. Every 100 turns a summary goes to stderr for local audits:
@@ -53,7 +53,7 @@ plugins:
       # disable_models: ["xai/grok-4.5"]        # denylist
       # models_url: "https://raw.githubusercontent.com/megumin31/cmdcode-go/main/models.json"
       # models_file: "/etc/cmdcode-go/models.json"  # local override, reloaded on change
-      # models_refresh_interval: "24h"  # Go duration; "0" disables remote refresh
+      # models_refresh_interval: "6h"  # Go duration; "0" disables remote refresh
 ```
 
 Key resolution order: host auth attributes → plugin `api_key` → `COMMANDCODE_KEY` (also `COMMANDCODE_API_KEY`, `COMMAND_CODE_API_KEY`) → CLI auth file (`~/.commandcode/auth.json`, `$COMMANDCODE_CONFIG_DIR/auth.json`).
@@ -66,7 +66,7 @@ Key resolution order: host auth attributes → plugin `api_key` → `COMMANDCODE
 - Reasoning-heavy models spend `max_tokens` on thinking first — tiny caps return `finish_reason: length` with empty content. Give generous budgets (models were observed using 300+ thinking tokens).
 - Chunk payloads stay raw JSON — the host adds `data:` framing and the terminal `data: [DONE]` itself. Pre-framed payloads would double up.
 - Upstream 503s surface as HTTP 503 with `isRetryable` preserved (free-tier models shed load under concurrency; clients should retry).
-- Model roster: `model.register`/`model.static` refresh from `models_file` (on change) or `models_url` (TTL `models_refresh_interval`, default 24h, 8s fetch timeout). Any fetch/parse/validation failure keeps the previous snapshot or the compiled table — never an empty list. Fetched payloads must be `schema_version: 1` with the anchor model `deepseek/deepseek-v4-flash` present.
+- Model roster: `model.register`/`model.static` refresh from `models_file` (on change) or `models_url` (TTL `models_refresh_interval`, default 6h, 8s fetch timeout). Any fetch/parse/validation failure keeps the previous snapshot or the compiled table — never an empty list. Fetched payloads must be `schema_version: 1` with the anchor model `deepseek/deepseek-v4-flash` present.
 
 ## Verification status
 
@@ -95,10 +95,14 @@ Key resolution order: host auth attributes → plugin `api_key` → `COMMANDCODE
 The Go plan exposes no server-side model list, so the roster mirrors the official CLI's own gating (`opensource` category minus `blockedModels`, uncategorized ids fail open — same as `evaluateModelAccess`):
 
 ```bash
+git clone --depth 1 --filter=blob:none --sparse https://github.com/anomalyco/models.dev /tmp/models.dev
+git -C /tmp/models.dev sparse-checkout set models
 python3 scripts/extract-models.py \
   --cli "$(npm root -g)/command-code/dist/cli.mjs" \
   --package "$(npm root -g)/command-code/package.json" \
-  --prev models.json --out models.json --gen go/models_generated.go
+  --prev models.json --models-dev /tmp/models.dev/models \
+  --models-dev-rev "$(git -C /tmp/models.dev rev-parse --short HEAD)" \
+  --out models.json --gen go/models_generated.go
 ```
 
-Output budgets come from the bundle where present, otherwise carried from `--prev` (else 32768 for ≤204800-context models, 65536 default). Contexts resolve as Tr override → catalog value → 200000. A daily Action runs the extractor against `command-code@latest`, gates on `gofmt`/`go vet`/`go test`, and commits `models.json` + `go/models_generated.go`.
+Output budgets resolve as bundle value → [anomalyco/models.dev](https://github.com/anomalyco/models.dev) `[limit].output` (exact stem match, `-free` aliases included; values exceeding the context window beyond unit tolerance are rejected) → carried from `--prev` → 32768 for ≤204800-context models → 65536 default. Contexts resolve as Tr override → catalog value → models.dev (only when the CLI falls back to its 200000 default) → 200000. Every entry records `output_source`/`context_source` (`bundle`/`modelsdev`/`carry`/`heuristic`, `cli`/`modelsdev`/`default`). An Action runs the extractor against `command-code@latest` every 6 hours, gates on `gofmt`/`go vet`/`go test`, and commits `models.json` + `go/models_generated.go`.

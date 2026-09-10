@@ -23,8 +23,8 @@ const (
 	// workflow in .github/workflows/models.yml refreshes it from the
 	// latest official CLI release.
 	defaultModelsURL = "https://raw.githubusercontent.com/megumin31/cmdcode-go/main/models.json"
-	// defaultRefreshInterval mirrors the daily Action cadence.
-	defaultRefreshInterval = 24 * time.Hour
+	// defaultRefreshInterval mirrors the 6-hour Action cadence.
+	defaultRefreshInterval = 6 * time.Hour
 	// modelsFetchTimeout bounds one refresh attempt; model registration
 	// is not latency-critical but must never hang the host.
 	modelsFetchTimeout = 8 * time.Second

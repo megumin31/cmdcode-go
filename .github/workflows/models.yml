@@ -14,7 +14,7 @@ name: models
 
 on:
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "17 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -35,14 +35,23 @@ jobs:
           npm install -g command-code@latest
           command-code --version || cmd --version || true
 
+      - name: Fetch models.dev data
+        run: |
+          rm -rf /tmp/models.dev
+          git clone -q --depth 1 --filter=blob:none --sparse \
+            https://github.com/anomalyco/models.dev /tmp/models.dev
+          git -C /tmp/models.dev sparse-checkout set models
+
       - name: Extract model roster
         run: |
           CLI="$(npm root -g)/command-code/dist/cli.mjs"
           PKG="$(npm root -g)/command-code/package.json"
+          REV="$(git -C /tmp/models.dev rev-parse --short HEAD)"
           python3 scripts/extract-models.py \
             --cli "$CLI" --package "$PKG" \
-            --prev models.json --out models.json \
-            --gen go/models_generated.go
+            --prev models.json --models-dev /tmp/models.dev/models \
+            --models-dev-rev "$REV" \
+            --out models.json --gen go/models_generated.go
       - uses: actions/setup-go@v5
         with:
           go-version-file: go/go.mod

@@ -92,15 +92,18 @@ func TestMaxTokensClampedToModelCap(t *testing.T) {
 		return got
 	}
 	hi := `{"model":"m","messages":[{"role":"user","content":"hi"}]}`
-	if got := build("zai-org/GLM-5.1", hi); got != 32768 {
-		t.Errorf("default budget for GLM-5.1 = %v, want 32768 (model output cap)", got)
+	// Qwen3.8-27B carries an explicit bundle cap (32768); GLM-style
+	// models.dev/carried caps move with upstream data, so the clamp
+	// contract pins the bundle-sourced one.
+	if got := build("Qwen/Qwen3.8-27B", hi); got != 32768 {
+		t.Errorf("default budget for Qwen3.8-27B = %v, want 32768 (model output cap)", got)
 	}
 	lo := `{"model":"m","messages":[{"role":"user","content":"hi"}],"max_tokens":1024}`
-	if got := build("zai-org/GLM-5.1", lo); got != 1024 {
+	if got := build("Qwen/Qwen3.8-27B", lo); got != 1024 {
 		t.Errorf("small explicit budget = %v, want 1024", got)
 	}
 	big := `{"model":"m","messages":[{"role":"user","content":"hi"}],"max_tokens":200000}`
-	if got := build("zai-org/GLM-5.1", big); got != 32768 {
+	if got := build("Qwen/Qwen3.8-27B", big); got != 32768 {
 		t.Errorf("oversized budget = %v, want clamped 32768", got)
 	}
 	if got := build("deepseek/deepseek-v4-flash", hi); got != 64000 {
