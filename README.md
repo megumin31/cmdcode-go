@@ -41,6 +41,18 @@ Run the translation regression tests (no network, no key needed):
 cd go && go test ./...
 ```
 
+### 让你的 agent 来部署
+
+把下面这段直接发给你的 agent（把 `<host>` 换成你的机器，SSH 别名或地址都行）：
+
+```text
+请照着 https://github.com/megumin31/cmdcode-go/blob/main/DEPLOY.md，
+把 cmdcode-go 插件部署到我的主机 <host> 上：
+1. 一定在目标机器本机编译，不要跨平台拷贝 .so
+2. 备份旧插件 → 安装 → 重启 host
+3. 按文档第 4 节逐项验收，把 `models refreshed` 那行和 is-active 结果贴给我
+4. 遇到问题先查第 6 节故障表，搞不定再问我
+```
 ## Configuration
 
 ```yaml
