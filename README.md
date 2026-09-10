@@ -2,7 +2,7 @@
 
 Unofficial [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin that serves the **CommandCode Go ($1/mo) plan** through the CLI's own `POST /alpha/generate` gateway. The Go plan has no Provider API access (`/provider/v1/*` returns `403 upgrade_required`), so this plugin replays the CLI wire protocol and translates OpenAI chat traffic into it — exactly what the official `command-code` CLI does on every turn.
 
-> Reverse-engineered from the `command-code` 1.47.1 bundle. Not affiliated with Command Code / Langbase. The endpoint is undocumented and can drift; when it does, update `cli_version` first.
+> Reverse-engineered from the `command-code` bundle (`models.json` records the exact CLI version each roster came from). Not affiliated with Command Code / Langbase. The endpoint is undocumented and can drift; when it does, update `cli_version` first.
 
 ## Features
 
@@ -27,7 +27,14 @@ Unofficial [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin th
 ```bash
 cd go && go build -buildmode=c-shared -o cmdcode-go.so .
 cp cmdcode-go.so <cliproxyapi>/plugins/
+# then restart the host (plugins load at startup; roster-only updates
+# need no rebuild — see "Model roster automation" and AGENTS.md)
 ```
+
+> Build ON the machine that runs the host: the `.so` is OS/arch-specific
+> (a macOS build on Linux fails with `invalid ELF header`). Needs Go 1.26+,
+> CGO, gcc + libc headers. Full runbook (including the remote host) lives
+> in [AGENTS.md](AGENTS.md).
 
 Run the translation regression tests (no network, no key needed):
 
@@ -89,6 +96,8 @@ Key resolution order: host auth attributes → plugin `api_key` → `COMMANDCODE
 | `go/gateway_test.go` | Regression suite (remote tests use `httptest`, no external network) |
 | `models.json` | Published roster contract (`schema_version`, `source_cli_version`, entitled models) |
 | `scripts/extract-models.py` | CLI-bundle extractor → `models.json` + `go/models_generated.go` |
+| `.github/workflows/models.yml` | 6-hour roster refresh (extract → fmt/vet/test → auto-commit) |
+| `AGENTS.md` | Agent runbook: build matrix, deploy, roster ops, conventions |
 
 ## Model roster automation
 
