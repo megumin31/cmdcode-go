@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
   "source": "command-code CLI bundle (XR catalog + plan gating)",
-  "source_cli_version": "1.44.0",
-  "models_dev_rev": "766e4ac",
-  "fetched_at": "2026-09-10T10:22:55Z",
+  "source_cli_version": "1.53.0",
+  "models_dev_rev": "0fb6f24",
+  "fetched_at": "2026-09-10T10:28:36Z",
   "counts": {
-    "catalog": 71,
-    "opensource": 47,
-    "premium": 17,
+    "catalog": 74,
+    "opensource": 49,
+    "premium": 18,
     "uncategorized": 7,
     "blocked": 6,
     "synthesized": 0,
-    "modelsdev": 38,
+    "modelsdev": 39,
     "dropped": 1,
-    "entitled": 48
+    "entitled": 50
   },
   "blocked_models": [
     "openrouter:google/gemini-3.7-flash",
@@ -98,6 +98,25 @@
       "hidden": false
     },
     {
+      "id": "deepseek/deepseek-v4.1-flash",
+      "display": "DeepSeek V4.1 Flash",
+      "description": "V4.1 hybrid-attention reasoning with vision",
+      "context": 1000000,
+      "context_source": "cli",
+      "output": 384000,
+      "output_source": "modelsdev",
+      "output_ref": "deepseek/deepseek-v4.1-flash.toml",
+      "category": "opensource",
+      "vision": true,
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "badge": null,
+      "hidden": false
+    },
+    {
       "id": "google/gemini-3.5-flash-lite",
       "display": "Gemini 3.5 Flash Lite",
       "description": "upgraded agentic capabilities, ideal for subagents",
@@ -172,6 +191,21 @@
       "hidden": false
     },
     {
+      "id": "inclusionai/ling-3.0-flash-sante:free",
+      "display": "Ling 3.0 Flash Sante",
+      "description": "health & medicine tuned lightweight-MoE, still strong on code",
+      "context": 262144,
+      "context_source": "cli",
+      "output": 32768,
+      "output_source": "bundle",
+      "output_ref": "",
+      "category": "opensource",
+      "vision": false,
+      "reasoning_efforts": [],
+      "badge": "free",
+      "hidden": false
+    },
+    {
       "id": "meituan/LongCat-2.0:free",
       "display": "LongCat 2.0",
       "description": "trillion-parameter agentic coding with 1M context",
@@ -197,7 +231,12 @@
       "output_ref": "",
       "category": "opensource",
       "vision": true,
-      "reasoning_efforts": [],
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "badge": null,
       "hidden": false
     },
@@ -212,7 +251,12 @@
       "output_ref": "",
       "category": "opensource",
       "vision": true,
-      "reasoning_efforts": [],
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "badge": null,
       "hidden": false
     },
@@ -242,7 +286,11 @@
       "output_ref": "minimax/MiniMax-M3.toml",
       "category": "opensource",
       "vision": true,
-      "reasoning_efforts": [],
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "badge": "free",
       "hidden": true
     },
@@ -287,7 +335,11 @@
       "output_ref": "minimax/MiniMax-M3.toml",
       "category": "opensource",
       "vision": true,
-      "reasoning_efforts": [],
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "badge": null,
       "hidden": false
     },
