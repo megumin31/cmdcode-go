@@ -28,13 +28,12 @@ Unofficial [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin th
 cd go && go build -buildmode=c-shared -o cmdcode-go.so .
 cp cmdcode-go.so <cliproxyapi>/plugins/
 # then restart the host (plugins load at startup; roster-only updates
-# need no rebuild — see "Model roster automation" and AGENTS.md)
+# need no rebuild — see "Model roster automation" and DEPLOY.md)
 ```
 
 > Build ON the machine that runs the host: the `.so` is OS/arch-specific
 > (a macOS build on Linux fails with `invalid ELF header`). Needs Go 1.26+,
-> CGO, gcc + libc headers. Full runbook (including the remote host) lives
-> in [AGENTS.md](AGENTS.md).
+> CGO, gcc + libc headers. Step-by-step deploy guide: [DEPLOY.md](DEPLOY.md).
 
 Run the translation regression tests (no network, no key needed):
 
@@ -97,7 +96,7 @@ Key resolution order: host auth attributes → plugin `api_key` → `COMMANDCODE
 | `models.json` | Published roster contract (`schema_version`, `source_cli_version`, entitled models) |
 | `scripts/extract-models.py` | CLI-bundle extractor → `models.json` + `go/models_generated.go` |
 | `.github/workflows/models.yml` | 6-hour roster refresh (extract → fmt/vet/test → auto-commit) |
-| `AGENTS.md` | Agent runbook: build matrix, deploy, roster ops, conventions |
+| `DEPLOY.md` | Deployment guide: build matrix, install, verify, troubleshoot, rollback |
 
 ## Model roster automation
 
