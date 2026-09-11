@@ -40,6 +40,7 @@ const (
 )
 
 type remoteModelFile struct {
+	Source           string        `json:"source"`
 	SchemaVersion    int           `json:"schema_version"`
 	SourceCLIVersion string        `json:"source_cli_version"`
 	Models           []remoteModel `json:"models"`
@@ -272,7 +273,9 @@ func parseModelsFile(raw []byte) ([]modelDef, string, error) {
 			break
 		}
 	}
-	if !found {
+	// Legacy payloads retain their anchor check. The documented roster may
+	// legitimately retire that model; membership must follow models.md.
+	if !found && doc.Source != "command-code bundled models.md" {
 		return nil, "", fmt.Errorf("missing anchor model %q", modelsMustContain)
 	}
 	cliVer := strings.TrimSpace(doc.SourceCLIVersion)

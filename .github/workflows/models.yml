@@ -1,72 +1,97 @@
 name: models
 
-# Keeps models.json (and the compiled fallback table) in sync with the
-# latest official CLI release. The Go plan has no server-side model-list
-# endpoint, so the roster is extracted from the CLI bundle's static
-# catalog (see scripts/extract-models.py).
-#
-# - models.json is the data contract the plugin fetches at runtime
-#   (models_url). Committed to main so raw.githubusercontent.com serves it.
-# - go/models_generated.go is regenerated from the same run and committed
-#   alongside, so builds carry a fresh fallback even for offline users.
-# - `go test` runs before any commit: a broken extraction or a
-#   non-compiling table fails the job instead of landing on main.
-
 on:
   schedule:
     - cron: "17 */6 * * *"
   workflow_dispatch:
+    inputs:
+      allow_large_drift:
+        description: "Allow reviewed large roster changes"
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "scripts/**"
+      - "go/**"
+      - "models.json"
+      - ".github/workflows/models.yml"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: models-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
-
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
 
-      - name: Install latest official CLI
-        run: |
-          npm install -g command-code@latest
-          command-code --version || cmd --version || true
+      - name: Test extractor
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
-      - name: Fetch models.dev data
+      - name: Download exact official package without executing it
+        if: github.event_name != 'pull_request'
         run: |
-          rm -rf /tmp/models.dev
-          git clone -q --depth 1 --filter=blob:none --sparse \
-            https://github.com/anomalyco/models.dev /tmp/models.dev
-          git -C /tmp/models.dev sparse-checkout set models
+          set -euo pipefail
+          VERSION="$(npm view command-code dist-tags.latest)"
+          PACK_DIR="$(mktemp -d)"
+          npm pack "command-code@$VERSION" --ignore-scripts --json --pack-destination "$PACK_DIR" > "$PACK_DIR/pack.json"
+          ARCHIVE="$(jq -er '.[0].filename' "$PACK_DIR/pack.json")"
+          INTEGRITY="$(jq -er '.[0].integrity' "$PACK_DIR/pack.json")"
+          tar -xzf "$PACK_DIR/$ARCHIVE" -C "$PACK_DIR" \
+            package/package.json \
+            package/dist/bundled/command-code-knowledge/reference/models.md
+          test "$(jq -r .version "$PACK_DIR/package/package.json")" = "$VERSION"
+          echo "CMD_PACKAGE=$PACK_DIR/package" >> "$GITHUB_ENV"
+          echo "CMD_INTEGRITY=$INTEGRITY" >> "$GITHUB_ENV"
 
-      - name: Extract model roster
+      - name: Fetch models.dev metadata
+        if: github.event_name != 'pull_request'
         run: |
-          CLI="$(npm root -g)/command-code/dist/cli.mjs"
-          PKG="$(npm root -g)/command-code/package.json"
-          REV="$(git -C /tmp/models.dev rev-parse --short HEAD)"
+          META_DIR="$(mktemp -d)"
+          git clone -q --depth 1 --filter=blob:none --sparse https://github.com/anomalyco/models.dev "$META_DIR"
+          git -C "$META_DIR" sparse-checkout set models
+          echo "MODELS_DEV=$META_DIR" >> "$GITHUB_ENV"
+
+      - name: Generate and validate roster
+        if: github.event_name != 'pull_request'
+        env:
+          ALLOW_DRIFT: ${{ inputs.allow_large_drift }}
+        run: |
+          EXTRA=()
+          if [ "$ALLOW_DRIFT" = "true" ]; then EXTRA+=(--allow-large-drift); fi
           python3 scripts/extract-models.py \
-            --cli "$CLI" --package "$PKG" \
-            --prev models.json --models-dev /tmp/models.dev/models \
-            --models-dev-rev "$REV" \
-            --out models.json --gen go/models_generated.go
+            --models-md "$CMD_PACKAGE/dist/bundled/command-code-knowledge/reference/models.md" \
+            --package "$CMD_PACKAGE/package.json" --package-integrity "$CMD_INTEGRITY" \
+            --prev models.json --models-dev "$MODELS_DEV/models" \
+            --models-dev-rev "$(git -C "$MODELS_DEV" rev-parse HEAD)" \
+            --out models.json --gen go/models_generated.go "${EXTRA[@]}"
+
       - uses: actions/setup-go@v7
         with:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
-
       - name: Vet and test
         run: |
           cd go
-          gofmt -l .
           test -z "$(gofmt -l .)"
           go vet ./...
           go test ./...
 
       - name: Commit refreshed roster
+        if: github.event_name != 'pull_request'
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
-          commit_message: "chore(models): refresh roster from command-code@latest"
+          commit_message: "chore(models): refresh roster from bundled models.md"
           file_pattern: "models.json go/models_generated.go"

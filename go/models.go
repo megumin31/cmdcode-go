@@ -9,13 +9,12 @@ import (
 
 // Go-plan model roster. Canonical gateway ids served over /alpha/generate.
 // The compiled modelTable (go/models_generated.go, extracted from the
-// official CLI bundle by scripts/extract-models.py) is the fallback; at
+// official package's models.md by scripts/extract-models.py) is the fallback; at
 // runtime maybeRefreshModels() may replace it with the Action-maintained
 // models.json when the operator configures models_url/models_file and the
 // payload validates. All lookups below go through activeModelTable so the
-// two sources never diverge in behavior. Context/output numbers track the
-// CLI registry; output budgets for entries the bundle leaves unspecified
-// are carried forward by the extractor.
+// two sources never diverge in behavior. Metadata comes from models.md and
+// models.dev, with labelled operational fallbacks for missing budgets.
 type modelDef struct {
 	id      string
 	display string

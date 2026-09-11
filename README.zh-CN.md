@@ -11,7 +11,7 @@
 - **Executor**（`both` scope，`chat-completions` 进/出）：OpenAI chat → 网关 NDJSON（`text-delta` / `reasoning-*` / `tool-call` / `finish` / `error` / `abort`）→ OpenAI 响应。Reasoning 以 OpenRouter 风格的 `reasoning_content` delta 透出，严格 OpenAI 客户端也能正常工作。
 - **流式 + 缓冲**：逐 chunk 增量转发 SSE；非流式调用在服务端消费完整条 NDJSON 再返回。没有 stream id 的 host 走缓冲 fallback。
 - **`response_before_translator`**：给 OpenAI→Claude 翻译补上缺失的 `data:` 前缀（那个转换器会丢掉无前缀 payload；OpenAI HTTP 层自己做分帧，所以这里必须是裸 JSON）。
-- **`model_registrar` + `model_provider`**：Go 套餐名单从官方 CLI bundle 提取（当前列表见 `models.json`）。[Action](.github/workflows/models.yml) 每 6 小时从 `command-code@latest` 刷新；插件经 `models_url`（6h TTL）自动跟进，编译表做离线兜底——注册永远不需要装 CLI。
+- **`model_registrar` + `model_provider`**：Go 套餐名单仅从官方包内 models.md 提取（当前列表见 `models.json`）。[Action](.github/workflows/models.yml) 每 6 小时从 `command-code@latest` 刷新；插件经 `models_url`（6h TTL）自动跟进，编译表做离线兜底——注册永远不需要装 CLI。
 - **`model_router`**：认领 `cmdcode-go/<id>`、canonical 名和短名；其余放行给别的 provider。
 - **Tool 往返**：tool schema 强制转成网关要求的 `{type: object}` 记录（缺失/null 的 schema 变成 `{"type":"object","properties":{}}` 而不是整轮失败）；`tool_choice: none` 时剥掉 tools。
 - **用量统计**：两条路径 `usage` 恒存在。`finish` 事件缺 `totalUsage` 时下游拿到 0（官方 CLI harness 默认行为），永不为 null。每 100 轮往 stderr 打一行本地审计：
@@ -105,23 +105,41 @@ Key 解析顺序：host auth 属性 → 插件 `api_key` → `COMMANDCODE_KEY`�
 | `go/normalize.go` | `response_before_translator` 钩子（OpenAI→Claude 补 `data:` 前缀） |
 | `go/gateway_test.go` | 回归套件（远程相关测试用 `httptest`，不碰外网） |
 | `models.json` | 发布的名单契约（`schema_version`、`source_cli_version`、entitled models） |
-| `scripts/extract-models.py` | CLI-bundle 提取器 → `models.json` + `go/models_generated.go` |
+| `scripts/extract-models.py` | models.md 提取器 → `models.json` + `go/models_generated.go` |
 | `.github/workflows/models.yml` | 6 小时名单刷新（extract → fmt/vet/test → auto-commit） |
 | `DEPLOY.md` | 部署指南：编译矩阵、安装、验收、排障、回滚 |
 
 ## 模型名单自动化
 
-Go 套餐没有服务端名单接口，所以名单复刻官方 CLI 自己的门禁（`opensource` 分类减 `blockedModels`，未分类 id fail open——和 `evaluateModelAccess` 同逻辑）：
+模型 ID、名称、最低套餐和 reasoning efforts 只来自精确版本 npm 包中的
+`dist/bundled/command-code-knowledge/reference/models.md`，仅 Go 行进入名单。
+不再解析或运行 cli.mjs；models.dev 只补元数据，不能改变成员关系。
+
+Action 每 6 小时解析 latest 为精确版本，通过 `npm pack --ignore-scripts` 下载，
+只解出 package.json 和 models.md。记录包 integrity、文档 SHA-256、models.dev 完整提交号。
+包版本没变也可更新 models.dev 元数据；相同输入生成相同输出。
+
+Context 优先使用 Command Code 文档窗口（K/M 按十进制解析），缺失时使用 models.dev，
+最后默认 200000。其他供应商的精确整数不能自动覆盖当前网关声明的窗口。
+Output 优先 models.dev，超过 context 则拒绝；然后使用上一版明确来自 models.dev 的值，
+最后采用标为 fallback 的预算（小窗口 32768，否则 65536，并不超过 context）。
+这些预算不代表已验证的 Command Code 网关上限。模态未知记 null。
+
+models.dev 只接受完整 ID 不区分大小写精确匹配，或全局唯一的精确短名匹配；
+保留标点和 free/fast/preview 等后缀，有歧义不猜测。
+
+缺列、未知套餐、重复 ID、短名冲突或异常模型数量会失败，保留线上旧名单。
+大幅变动需人工检查后通过 workflow_dispatch 的 allow_large_drift 放行。
+解析器使用固定版本文档测试，路由与预算测试使用固定数据，不钉死实时套餐。
+保留 JSON schema 1 兼容旧插件；新版插件支持文档名单移除旧 anchor 模型。
+
+本地生成（PKG 为解包后的 package 目录，META 为 models.dev 仓库）：
 
 ```bash
-git clone --depth 1 --filter=blob:none --sparse https://github.com/anomalyco/models.dev /tmp/models.dev
-git -C /tmp/models.dev sparse-checkout set models
+python3 -m unittest discover -s scripts -p 'test_*.py'
 python3 scripts/extract-models.py \
-  --cli "$(npm root -g)/command-code/dist/cli.mjs" \
-  --package "$(npm root -g)/command-code/package.json" \
-  --prev models.json --models-dev /tmp/models.dev/models \
-  --models-dev-rev "$(git -C /tmp/models.dev rev-parse --short HEAD)" \
+  --models-md "$PKG/dist/bundled/command-code-knowledge/reference/models.md" \
+  --package "$PKG/package.json" --prev models.json \
+  --models-dev "$META/models" --models-dev-rev "$(git -C "$META" rev-parse HEAD)" \
   --out models.json --gen go/models_generated.go
 ```
-
-Output budgets 按 bundle 值 → [anomalyco/models.dev](https://github.com/anomalyco/models.dev) `[limit].output`（stem 精确匹配，`-free` 别名计入；超 context 窗口（超单位容差）的值丢弃）→ `--prev` carry → context ≤204800 给 32768 → 默认 65536。Contexts 按 Tr 覆盖 → 目录值 → models.dev（仅 CLI 自己 fallback 到 200000 默认时）→ 200000。每条记 `output_source`/`context_source`（`bundle`/`modelsdev`/`carry`/`heuristic`，`cli`/`modelsdev`/`default`）。Action 每 6 小时对 `command-code@latest` 跑一遍提取器，经 `gofmt`/`go vet`/`go test` 门禁后提交 `models.json` + `go/models_generated.go`。
