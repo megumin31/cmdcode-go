@@ -1,153 +1,184 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
-// ProviderKey is the executor identifier and model provider key.
 const ProviderKey = "cmdcode-go"
 
 type pluginConfig struct {
-	APIKey                string   `json:"api_key"`
-	BaseURL               string   `json:"base_url"`
-	CLIVersion            string   `json:"cli_version"`
-	ProjectSlug           string   `json:"project_slug"`
-	Permission            string   `json:"permission_mode"`
-	Models                []string `json:"models"`
-	DisableModels         []string `json:"disable_models"`
-	ModelsURL             string   `json:"models_url"`
-	ModelsFile            string   `json:"models_file"`
-	ModelsRefreshInterval string   `json:"models_refresh_interval"`
+	APIKey                string   `yaml:"api_key"`
+	BaseURL               string   `yaml:"base_url"`
+	CLIVersion            string   `yaml:"cli_version"`
+	ProjectSlug           string   `yaml:"project_slug"`
+	Permission            string   `yaml:"permission_mode"`
+	Models                []string `yaml:"models"`
+	DisableModels         []string `yaml:"disable_models"`
+	ModelsURL             string   `yaml:"models_url"`
+	ModelsFile            string   `yaml:"models_file"`
+	ModelsRefreshInterval string   `yaml:"models_refresh_interval"`
 }
 
-var configMu sync.RWMutex
-var activeConfig = pluginConfig{}
+func cloneConfig(c pluginConfig) pluginConfig {
+	c.Models = append([]string(nil), c.Models...)
+	c.DisableModels = append([]string(nil), c.DisableModels...)
+	return c
+}
 
-// configure ingests the host register/reconfigure payload best-effort.
-// The host sends {"config_yaml": "<yaml>"}; parsing is a dependency-free
-// line scan for the handful of scalar keys we support. Anything missing
-// keeps its previous value so reconfigure without keys is a no-op.
-func configure(request []byte) {
+// ConfigStore publishes validated, immutable copies. Failed updates never
+// partially apply. Missing keys retain their values; null/empty clears them.
+type ConfigStore struct {
+	mu    sync.RWMutex
+	value pluginConfig
+}
+
+func (s *ConfigStore) Snapshot() pluginConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneConfig(s.value)
+}
+
+func decodeConfig(request []byte, previous pluginConfig) (pluginConfig, error) {
 	if len(request) == 0 {
-		return
+		return previous, nil
 	}
-	// The host sends {"config_yaml": "<base64>"} (Go []byte JSON encoding).
 	var payload struct {
-		ConfigYAML []byte `json:"config_yaml"`
+		ConfigYAML string `json:"config_yaml"`
 	}
-	yamlText := ""
-	if err := json.Unmarshal(request, &payload); err == nil && len(payload.ConfigYAML) > 0 {
-		yamlText = string(payload.ConfigYAML)
-	} else {
-		// Fallback for plain-text payloads (tests, older hosts).
-		var text struct {
-			ConfigYAML string `json:"config_yaml"`
-		}
-		if err := json.Unmarshal(request, &text); err != nil || text.ConfigYAML == "" {
-			return
-		}
-		yamlText = text.ConfigYAML
+	if err := json.Unmarshal(request, &payload); err != nil {
+		return previous, fmt.Errorf("config envelope: %w", err)
 	}
-	next := getConfig()
-	var listTarget *[]string
-	for _, line := range strings.Split(yamlText, "\n") {
-		if item := parseListItem(line); item != "" && listTarget != nil {
-			*listTarget = append(*listTarget, item)
+	text := payload.ConfigYAML
+	if text == "" {
+		return previous, nil
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(text); err == nil {
+		text = string(decoded)
+	}
+	decoder := yaml.NewDecoder(strings.NewReader(text))
+	var document yaml.Node
+	if err := decoder.Decode(&document); err != nil {
+		return previous, fmt.Errorf("config YAML: %w", err)
+	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return previous, fmt.Errorf("config must contain exactly one YAML document")
+	}
+	if len(document.Content) == 0 || document.Content[0].Kind != yaml.MappingNode {
+		return previous, fmt.Errorf("config must be a mapping")
+	}
+	// Host-owned fields (enabled, priority, etc.) are deliberately allowed.
+	// Decode into a map first to validate duplicates; map values let null clear.
+	var fields map[string]yaml.Node
+	if err := document.Decode(&fields); err != nil {
+		return previous, err
+	}
+	next := cloneConfig(previous)
+	scalars := map[string]*string{
+		"api_key": &next.APIKey, "base_url": &next.BaseURL, "cli_version": &next.CLIVersion,
+		"project_slug": &next.ProjectSlug, "permission_mode": &next.Permission,
+		"models_url": &next.ModelsURL, "models_file": &next.ModelsFile,
+		"models_refresh_interval": &next.ModelsRefreshInterval,
+	}
+	for key, dst := range scalars {
+		if node, ok := fields[key]; ok {
+			if node.Tag == "!!null" {
+				*dst = ""
+				continue
+			}
+			if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
+				return previous, fmt.Errorf("%s must be a string", key)
+			}
+			if err := node.Decode(dst); err != nil {
+				return previous, fmt.Errorf("%s: %w", key, err)
+			}
+		}
+	}
+	for key, dst := range map[string]*[]string{"models": &next.Models, "disable_models": &next.DisableModels} {
+		if node, ok := fields[key]; ok {
+			*dst = nil
+			if node.Tag == "!!null" {
+				continue
+			}
+			// Keep the formerly documented comma-separated scalar syntax.
+			if node.Kind == yaml.ScalarNode && node.Tag == "!!str" {
+				for _, item := range strings.Split(node.Value, ",") {
+					if item = strings.TrimSpace(item); item != "" {
+						*dst = append(*dst, item)
+					}
+				}
+			} else if node.Kind == yaml.SequenceNode {
+				for _, item := range node.Content {
+					if item.Kind != yaml.ScalarNode || item.Tag != "!!str" || strings.TrimSpace(item.Value) == "" {
+						return previous, fmt.Errorf("%s must contain nonempty strings", key)
+					}
+					*dst = append(*dst, strings.TrimSpace(item.Value))
+				}
+			} else {
+				return previous, fmt.Errorf("%s must be a list or comma-separated string", key)
+			}
+		}
+	}
+	if err := validateConfig(next); err != nil {
+		return previous, err
+	}
+	return next, nil
+}
+
+func validateConfig(c pluginConfig) error {
+	for name, raw := range map[string]string{"base_url": c.BaseURL, "models_url": c.ModelsURL} {
+		if raw == "" {
 			continue
 		}
-		listTarget = nil
-		key, value := splitYAMLKV(line)
-		switch key {
-		case "api_key":
-			next.APIKey = value
-		case "base_url":
-			next.BaseURL = value
-		case "cli_version":
-			next.CLIVersion = value
-		case "project_slug":
-			next.ProjectSlug = value
-		case "permission_mode":
-			next.Permission = value
-		case "models":
-			next.Models = parseModelList(value)
-			listTarget = &next.Models
-		case "disable_models":
-			next.DisableModels = parseModelList(value)
-			listTarget = &next.DisableModels
-		case "models_url":
-			next.ModelsURL = value
-		case "models_file":
-			next.ModelsFile = value
-		case "models_refresh_interval":
-			next.ModelsRefreshInterval = value
+		u, err := url.Parse(raw)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Fragment != "" {
+			return fmt.Errorf("%s must be an HTTP(S) URL without credentials or fragment", name)
 		}
 	}
-	setConfig(next)
-}
-
-// parseModelList splits flow values ("a, b") into entries.
-func parseModelList(value string) []string {
-	var out []string
-	for _, part := range strings.Split(value, ",") {
-		if entry := unquote(strings.TrimSpace(part)); entry != "" {
-			out = append(out, entry)
+	if c.ModelsRefreshInterval != "" {
+		if _, err := time.ParseDuration(c.ModelsRefreshInterval); err != nil {
+			return fmt.Errorf("models_refresh_interval: %w", err)
 		}
 	}
-	return out
-}
-
-// parseListItem matches block-style list entries ("  - model-id").
-func parseListItem(line string) string {
-	trimmed := strings.TrimSpace(line)
-	if !strings.HasPrefix(trimmed, "- ") {
-		return ""
+	for _, value := range []string{c.APIKey, c.CLIVersion, c.ProjectSlug} {
+		if bytes.ContainsAny([]byte(value), "\r\n") {
+			return fmt.Errorf("config header values must not contain newlines")
+		}
 	}
-	return unquote(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+	return nil
 }
 
-func unquote(s string) string {
-	return strings.Trim(s, `"'`)
-}
-
-func splitYAMLKV(line string) (string, string) {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-		return "", ""
+func (s *ConfigStore) Update(request []byte) (pluginConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next, err := decodeConfig(request, s.value)
+	if err != nil {
+		return pluginConfig{}, err
 	}
-	idx := strings.Index(trimmed, ":")
-	if idx < 0 {
-		return "", ""
-	}
-	key := strings.TrimSpace(trimmed[:idx])
-	value := strings.TrimSpace(trimmed[idx+1:])
-	value = strings.Trim(value, `"'`)
-	return key, value
-}
-
-func getConfig() pluginConfig {
-	configMu.RLock()
-	defer configMu.RUnlock()
-	return activeConfig
-}
-
-func setConfig(cfg pluginConfig) {
-	configMu.Lock()
-	defer configMu.Unlock()
-	activeConfig = cfg
+	s.value = cloneConfig(next)
+	return cloneConfig(next), nil
 }
 
 // resolveAPIKey prefers auth-bound material selected by the host, then the
 // plugin config, then environment, then the official CLI auth file so a plain
 // `cmd login` keeps working without duplicating the key.
-func resolveAPIKey(authAttrs map[string]string) string {
+func (cfg pluginConfig) resolveAPIKey(authAttrs map[string]string) string {
 	if key := strings.TrimSpace(authAttrs["api_key"]); key != "" {
 		return key
 	}
-	if cfg := getConfig(); strings.TrimSpace(cfg.APIKey) != "" {
+	if strings.TrimSpace(cfg.APIKey) != "" {
 		return cfg.APIKey
 	}
 	for _, env := range []string{"COMMANDCODE_KEY", "COMMANDCODE_API_KEY", "COMMAND_CODE_API_KEY"} {
@@ -194,8 +225,8 @@ func readCLIAuthFile() string {
 	return ""
 }
 
-func resolveBaseURL() string {
-	if cfg := getConfig(); strings.TrimSpace(cfg.BaseURL) != "" {
+func (cfg pluginConfig) resolveBaseURL() string {
+	if strings.TrimSpace(cfg.BaseURL) != "" {
 		return strings.TrimRight(cfg.BaseURL, "/")
 	}
 	if base := strings.TrimSpace(os.Getenv("COMMANDCODE_BASE_URL")); base != "" {
@@ -207,8 +238,8 @@ func resolveBaseURL() string {
 // cliVersion tracks the installed CLI release. The gateway rejects stale
 // versions, so prefer an explicit config value and otherwise default to the
 // release this plugin was reverse-engineered against.
-func cliVersion() string {
-	if cfg := getConfig(); strings.TrimSpace(cfg.CLIVersion) != "" {
+func (cfg pluginConfig) cliVersion() string {
+	if strings.TrimSpace(cfg.CLIVersion) != "" {
 		return cfg.CLIVersion
 	}
 	if ver := strings.TrimSpace(os.Getenv("COMMANDCODE_CLI_VERSION")); ver != "" {
@@ -217,15 +248,15 @@ func cliVersion() string {
 	return "1.47.1"
 }
 
-func projectSlug() string {
-	if cfg := getConfig(); strings.TrimSpace(cfg.ProjectSlug) != "" {
+func (cfg pluginConfig) projectSlug() string {
+	if strings.TrimSpace(cfg.ProjectSlug) != "" {
 		return cfg.ProjectSlug
 	}
 	return "cliproxyapi"
 }
 
-func permissionMode() string {
-	if cfg := getConfig(); strings.TrimSpace(cfg.Permission) != "" {
+func (cfg pluginConfig) permissionMode() string {
+	if strings.TrimSpace(cfg.Permission) != "" {
 		return cfg.Permission
 	}
 	return "standard"
