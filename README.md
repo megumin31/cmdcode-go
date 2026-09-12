@@ -1,62 +1,32 @@
 # cmdcode-go
 
-English | [中文版](README.zh-CN.md)
+English | [中文](README.zh-CN.md)
 
-Unofficial [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin that serves the **CommandCode Go ($1/mo) plan** through the CLI's own `POST /alpha/generate` gateway. The Go plan has no Provider API access (`/provider/v1/*` returns `403 upgrade_required`), so this plugin replays the CLI wire protocol and translates OpenAI chat traffic into it — exactly what the official `command-code` CLI does on every turn.
+An unofficial [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin for Command Code Go accounts. It translates OpenAI chat requests to the CLI's `/alpha/generate` gateway, with streaming, tool calls, reasoning content and image input.
 
-> Reverse-engineered from the `command-code` bundle (`models.json` records the exact CLI version each roster came from). Not affiliated with Command Code / Langbase. The endpoint is undocumented and can drift; when it does, update `cli_version` first.
+Not affiliated with Command Code / Langbase. The upstream protocol is undocumented; compatibility may change independently of the model list.
 
-## Features
+## Quick start
 
-- **Executor** (`both` scope, `chat-completions` in/out): OpenAI chat → gateway NDJSON (`text-delta` / `reasoning-*` / `tool-call` / `finish` / `error` / `abort`) → OpenAI response. Reasoning travels as OpenRouter-style `reasoning_content` deltas so strict OpenAI clients keep working.
-- **Streaming + buffered**: incremental SSE relay chunk-by-chunk; non-streaming calls are served by consuming the NDJSON server-side. Hosts without stream ids get a buffered fallback.
-- **`response_before_translator`**: adds the missing `data:` prefix for OpenAI→Claude translation (that converter drops unprefixed payloads; the OpenAI HTTP layer frames itself, so raw JSON is required there).
-- **`model_registrar` + `model_provider`**: Go-plan roster extracted solely from the official package’s models.md (see `models.json` for the current list). An [Action](.github/workflows/models.yml) refreshes it from `command-code@latest` every 6 hours; the plugin picks it up via `models_url` (6h TTL) with the compiled table as offline fallback — registration never needs the CLI installed.
-- **`model_router`**: claims `cmdcode-go/<id>`, canonical and short names; everything else falls through to other providers.
-- **Tool round-trip**: tool schemas are coerced to the `{type: object}` record the gateway demands (null/missing schemas become `{"type":"object","properties":{}}` instead of failing the turn); `tool_choice: none` strips tools.
-- **Usage accounting**: `usage` is always present on both paths. When a `finish` event omits `totalUsage`, downstream gets zeros (the official CLI harness default), never null. Every 100 turns a summary goes to stderr for local audits:
-  `cmdcode-go: usage turns=N with_totalUsage=X zero_fallback=Y truncated=Z`
-- **Truncation is a failure**: a turn ending without a `finish` event surfaces as an error so the host can retry (mirroring the official 502), never a synthesized `stop`.
+These commands target **Linux**. Build for the host's OS, architecture and libc; building on the host is the simplest option, but a compatible build environment also works. Do not copy a macOS library onto Linux.
 
-## Requirements
+Requirements: a CLIProxyAPI v7 host compatible with the SDK version in [go/go.mod](go/go.mod), the Go toolchain specified there, a C compiler and libc development headers, and a Command Code account key. The official CLI is not required when you supply the key directly.
 
-- CLIProxyAPI v7 host (`github.com/router-for-me/CLIProxyAPI/v7` v7.2.149)
-- Go 1.26+ (build only)
-- A CommandCode account key (`user_...`)
-
-## Install
+### 1. Build
 
 ```bash
-cd go && go build -buildmode=c-shared -o cmdcode-go.so .
-cp cmdcode-go.so <cliproxyapi>/plugins/
-# then restart the host (plugins load at startup; roster-only updates
-# need no rebuild — see "Model roster automation" and DEPLOY.md)
+git clone https://github.com/megumin31/cmdcode-go.git
+cd cmdcode-go
+mkdir -p build
+(cd go && CGO_ENABLED=1 go build -buildmode=c-shared -o ../build/cmdcode-go.so .)
+file build/cmdcode-go.so
 ```
 
-> Build ON the machine that runs the host: the `.so` is OS/arch-specific
-> (a macOS build on Linux fails with `invalid ELF header`). Needs Go 1.26+,
-> CGO, gcc + libc headers. Step-by-step deploy guide: [DEPLOY.md](DEPLOY.md).
+For an existing checkout, update with `git pull --ff-only origin main` from a clean `main` branch instead of cloning again. Check that `file` reports a Linux shared library for the host's architecture.
 
-Run the translation regression tests (no network, no key needed):
+### 2. Configure the host
 
-```bash
-cd go && go test ./...
-```
-
-### Deploy with your agent
-
-Paste this to your agent:
-
-```text
-Deploy the cmdcode-go plugin following
-https://github.com/megumin31/cmdcode-go/blob/main/DEPLOY.md:
-1. Find where the CLIProxyAPI host runs; always build on that machine itself — never copy a .so across platforms
-2. Back up the old plugin, install, restart the host
-3. Verify item by item per section 4 and paste me the `models refreshed` line plus the service status
-4. On any problem, check the section 6 troubleshooting table first; ask me only if stuck
-```
-
-## Configuration
+Merge this into the host's configuration; retain other plugins:
 
 ```yaml
 plugins:
@@ -65,105 +35,124 @@ plugins:
     cmdcode-go:
       enabled: true
       priority: 1
-      # api_key: "user_..."    # or COMMANDCODE_KEY env / ~/.commandcode/auth.json
-      # base_url: "https://api.commandcode.ai"
-      # cli_version: "1.47.1"  # must track the installed CLI; stale versions get rejected
-      # project_slug: "cliproxyapi"
-      # permission_mode: "standard"  # forwarded as permissionMode
-      # models: ["deepseek/deepseek-v4-flash"]  # allowlist, empty = all
-      # disable_models: ["xai/grok-4.5"]        # denylist
-      # models_url: "https://raw.githubusercontent.com/megumin31/cmdcode-go/main/models.json"
-      # models_file: "/etc/cmdcode-go/models.json"  # local override, reloaded on change
-      # models_refresh_interval: "6h"  # Go duration; "0" disables remote refresh
+      # api_key: "user_..."  # Or provide COMMANDCODE_KEY to the host process.
 ```
 
-Key resolution order: host auth attributes → plugin `api_key` → `COMMANDCODE_KEY` (also `COMMANDCODE_API_KEY`, `COMMAND_CODE_API_KEY`) → CLI auth file (`~/.commandcode/auth.json`, `$COMMANDCODE_CONFIG_DIR/auth.json`).
+The account key must be available to the **running host**, not just your interactive shell. For a service, use its environment configuration, plugin configuration, or a CLI auth file readable by the service account.
 
-## Behavior notes
+Key precedence: host auth attributes → plugin `api_key` → `COMMANDCODE_KEY` / `COMMANDCODE_API_KEY` / `COMMAND_CODE_API_KEY` → CLI auth files. File search order is `$COMMANDCODE_CONFIG_DIR/auth.json`, `~/.commandcode/auth.json`, then `~/.config/commandcode/auth.json`.
 
-- The gateway rejects `stream:false`; the plugin always sends `stream:true`.
-- An omitted output budget uses the smaller of `64000` and the model's reference/default budget. Explicit budgets are clamped only by a known `gateway_output_limit`, never by a metadata fallback.
-- `reasoning_effort` is clamped to the gateway enum (`low|medium|high|xhigh|max`); unknown values degrade to the model default instead of failing the turn.
-- Reasoning-heavy models spend `max_tokens` on thinking first — tiny caps return `finish_reason: length` with empty content. Give generous budgets (models were observed using 300+ thinking tokens).
-- Chunk payloads stay raw JSON — the host adds `data:` framing and the terminal `data: [DONE]` itself. Pre-framed payloads would double up.
-- Upstream 503s surface as HTTP 503 with `isRetryable` preserved (free-tier models shed load under concurrency; clients should retry).
-- Model roster: `model.register`/`model.static` refresh from `models_file` (on change) or `models_url` (TTL `models_refresh_interval`, default 6h, 8s fetch timeout). Any fetch/parse/validation failure keeps the previous snapshot or the compiled table — never an empty list. Fetched payloads must be `schema_version: 1` with the anchor model `deepseek/deepseek-v4-flash` present.
+### 3. Install and restart
 
-## Verification status
+Run from the repository root. Set the **actual plugin directory** first. This example assumes a user systemd unit named `cliproxyapi.service`; use your real service manager/unit otherwise.
 
-- `go vet` + `go test` green (33 tests, `-race` clean: translation, tool round-trip, `tool_choice:none`, adversarial inputs, host-YAML config, NDJSON edges, incremental-stream parser, framing hook, effort sanitizer, schema coercion, model allow/deny filtering, routing contract, key precedence, UUID shape, error-status mapping, zero-fallback usage, truncation contract, usage-turn counters, remote roster fetch/cache/file/disabled, roster config keys).
-- Stress verified through a real host binary: 12-way parallel mixed-model burst, 12× sequential sustained (12/12), 4× mid-stream cancels with instant recovery, 3787-token single-turn output, 200KB tool_result input, image input, scripted agentic tool loop, and official `openai` + `anthropic` SDK suites on all three protocols.
+```bash
+PLUGIN_DIR=/absolute/path/to/cliproxyapi/plugins
+(
+  set -e
+  mkdir -p "$PLUGIN_DIR"
+  systemctl --user stop cliproxyapi.service
+  if [ -f "$PLUGIN_DIR/cmdcode-go.so" ]; then
+    cp -p "$PLUGIN_DIR/cmdcode-go.so" "$PLUGIN_DIR/cmdcode-go.so.bak"
+  fi
+  install -m 755 build/cmdcode-go.so "$PLUGIN_DIR/cmdcode-go.so.new"
+  mv "$PLUGIN_DIR/cmdcode-go.so.new" "$PLUGIN_DIR/cmdcode-go.so"
+  systemctl --user start cliproxyapi.service
+)
+```
 
-## Project layout
+Stop before replacing a loaded library. The conditional backup also works on first installation. Only the shared library is needed at runtime; the generated C header is not installed.
 
-| File | Role |
+### 4. Verify
+
+For the systemd example:
+
+```bash
+systemctl --user is-active cliproxyapi.service
+journalctl --user -u cliproxyapi.service --since "5 minutes ago" --no-pager
+```
+
+Check that the host loads/registers the plugin and reports no configuration or library-loading errors. A successful model refresh does **not** print a required success line; a working compiled fallback is also valid.
+
+Query the host using its own client API key, **not** the Command Code account key:
+
+```bash
+CLIPROXY_URL=http://127.0.0.1:8317  # Replace with the host's address.
+curl --fail-with-body -sS "$CLIPROXY_URL/v1/models" \
+  -H "Authorization: Bearer $CLIPROXY_API_KEY"
+```
+
+Set `CLIPROXY_API_KEY` to your host client key before running. Compare the returned IDs with [models.json](models.json); host configuration may add prefixes or aliases, so do not require every ID to start with `cmdcode-go/`. Registration verifies loading, not upstream account access. To verify inference, send a small chat request using an ID returned by the host; that makes a real upstream call.
+
+## Configuration reference
+
+All plugin-specific options go under `plugins.configs.cmdcode-go`.
+
+| Option | Default / behavior |
 |---|---|
-| `go/main.go` | c-shared exports, host RPC dispatch |
-| `go/request.go` + `go/response.go` | OpenAI ↔ `/alpha/generate` translation, usage framing, output budgets |
-| `go/stream.go` | Incremental NDJSON→SSE relay (`EventDecoder`), truncation handling |
-| `go/executor.go` | Stream / non-stream / buffered execution paths |
-| `go/models.go` | Go-plan roster lookups, allow/deny filtering, routing (compiled table + remote snapshot via immutable snapshots) |
-| `go/models_generated.go` | Compiled fallback table — generated, do not edit (see below) |
-| `go/models_remote.go` | `models.json` fetch/validation/TTL snapshot, offline fallback |
-| `go/config.go` | Host YAML config, key / URL / version resolution |
-| `go/normalize.go` | `response_before_translator` hook (OpenAI→Claude `data:` prefix) |
-| `go/gateway_test.go` | Regression suite (remote tests use `httptest`, no external network) |
-| `models.json` | Published roster contract (`schema_version`, `source_cli_version`, entitled models) |
-| `scripts/extract-models.py` | models.md extractor → `models.json` + `go/models_generated.go` |
-| `.github/workflows/models.yml` | 6-hour roster refresh (extract → fmt/vet/test → auto-commit) |
-| `DEPLOY.md` | Deployment guide: build matrix, install, verify, troubleshoot, rollback |
+| `api_key` | Optional; credential precedence is described above |
+| `base_url` | `https://api.commandcode.ai`; `COMMANDCODE_BASE_URL` overrides the default |
+| `cli_version` | `COMMANDCODE_CLI_VERSION`, otherwise `1.47.1`; protocol fingerprint, separate from catalog version |
+| `project_slug` | `cliproxyapi` |
+| `permission_mode` | `standard` |
+| `models` | Empty = all roster models; accepts YAML lists |
+| `disable_models` | Empty = none; takes precedence over `models` |
+| `models_url` | This repository's `main/models.json` on raw.githubusercontent.com |
+| `models_file` | Local JSON override; takes precedence over `models_url` |
+| `models_refresh_interval` | `"6h"`; `"0"` selects the compiled roster and disables URL/file refresh |
 
-## Model roster automation
+Names accept canonical IDs, unique short names, and the `cmdcode-go/` prefix. Invalid configuration updates are rejected as a whole. Omitted keys retain their previous values during reconfiguration; use `null` or an empty list to clear a value.
 
-Membership, IDs, names, minimum plans and reasoning efforts come solely from
-`dist/bundled/command-code-knowledge/reference/models.md` in an exact npm package.
-Only Go rows are included. No cli.mjs parsing or execution; models.dev enriches only.
+Do not automatically set `cli_version` to the model catalog version: a catalog update does not establish wire-protocol compatibility.
 
-Every six hours the Action resolves latest to an exact version, downloads with
-`npm pack --ignore-scripts`, and extracts only package.json and models.md.
-Package integrity, document SHA-256 and the full models.dev commit are recorded.
-Metadata can refresh even when the CLI version is unchanged. Identical inputs are idempotent.
+## Model updates
 
-Context uses the documented deployment window (decimal K/M), then models.dev,
-then a labelled 200000 default. Another provider's precise integer does not override
-Command Code's advertised window. Output uses models.dev if within context, then a
-previous models.dev-sourced value, then a labelled fallback (32768 for small windows,
-otherwise 65536, capped at context). These budgets are not verified gateway limits.
-Unknown modalities remain null.
+The [models workflow](.github/workflows/models.yml) runs every six hours. It resolves an exact npm version, reads that package's `models.md`, and includes only documented Go models. [models.dev](https://github.com/anomalyco/models.dev) adds metadata without changing membership. Validated results update both JSON and the compiled fallback.
 
-Matching is case-insensitive exact full ID, then a globally unique exact basename.
-Punctuation and free/fast/preview suffixes are preserved; ambiguous matches are skipped.
-Missing columns, unknown plans, duplicate IDs, short-name collisions and abnormal counts
-fail without publishing. Large changes require review and workflow_dispatch's
-allow_large_drift override. Fixed-version fixtures cover extraction, while fixed
-model fixtures test routing and budgets independently of live plans.
-JSON schema 1 remains compatible; the updated runtime allows the documented roster
-to retire the legacy anchor model.
+Runtime refresh is **lazy**: model registration/list calls check the six-hour TTL; there is no independent background timer. Local files are checked by modification time. Failures retain the last good roster, cool down for five minutes, and never replace it with an empty list. The fetch timeout is eight seconds.
 
-Local generation (PKG is the unpacked package directory; META is the models.dev clone):
+Model-list changes normally need no rebuild. A host restart resets the in-memory refresh state; simply touching an unchanged host config does not guarantee a refresh. For reproducible/offline lists, use `models_file`; see [ARCHITECTURE.md](ARCHITECTURE.md) for schema and validation details.
+
+## Upgrade and rollback
+
+For code changes: update a clean checkout, repeat **Build**, then **Install and restart**, then **Verify**. Keep the backup until verification succeeds.
+
+To restore the previous binary, first set `PLUGIN_DIR` as above:
+
+```bash
+test -f "$PLUGIN_DIR/cmdcode-go.so.bak" &&
+systemctl --user stop cliproxyapi.service &&
+cp -p "$PLUGIN_DIR/cmdcode-go.so.bak" "$PLUGIN_DIR/cmdcode-go.so.restore" &&
+mv "$PLUGIN_DIR/cmdcode-go.so.restore" "$PLUGIN_DIR/cmdcode-go.so" &&
+systemctl --user start cliproxyapi.service
+```
+
+Verify again after rollback. This restores the binary only; restore configuration separately if you changed it. Remote models still follow `main` unless you pin a local file or disable refresh.
+
+## Troubleshooting
+
+| Symptom | What to check |
+|---|---|
+| `invalid ELF header`, wrong architecture, missing libc symbols | Build OS/architecture/libc compatibility and CGO toolchain |
+| Plugin absent from host | Actual plugin directory, enabled configuration, file permissions and host logs |
+| Missing key / authentication error | Service account's environment and auth files; distinguish host client key from upstream account key |
+| Model list unchanged | Lazy refresh trigger, TTL, file modification time, and five-minute failure cooldown |
+| `model refresh failed` | URL/network or JSON validation; the previous/compiled roster remains available |
+| Version-related upstream rejection | Configured fingerprint and current upstream response; do not infer it from catalog version |
+| Empty answer with `finish_reason: length` | Reasoning may consume the budget; inspect reasoning content and requested token limit |
+| Shutdown takes time / truncated stream | Inspect logs; shutdown waits for callbacks, and missing finish events are errors |
+
+## Limits and development
+
+Missing upstream usage is reported as zeros, not a measured zero-cost turn. Fallback output budgets choose defaults; explicit budgets are clamped only by a known `gateway_output_limit`. Forced tool selection is not fully supported. Client disconnection is detected on a failed host emit; an idle upstream may continue until the request timeout. See [architecture and protocol limits](ARCHITECTURE.md).
+
+From the repository root:
 
 ```bash
 python3 -m unittest discover -s scripts -p 'test_*.py'
-python3 scripts/extract-models.py \
-  --models-md "$PKG/dist/bundled/command-code-knowledge/reference/models.md" \
-  --package "$PKG/package.json" --prev models.json \
-  --models-dev "$META/models" --models-dev-rev "$(git -C "$META" rev-parse HEAD)" \
-  --out models.json --gen go/models_generated.go
+(cd go && go vet ./... && go test -race ./...)
 ```
 
-## Component design
+Python tests need Python 3.11+. Go tests use local servers and injected callbacks; they do not require an upstream key. Downloading build/test dependencies requires network access on first use. CI also builds the c-shared library. These checks do not establish live gateway compatibility.
 
-The single-package, c-shared plugin has five concrete components: Plugin,
-ConfigStore, ModelRegistry, GatewayClient and EventDecoder.
-See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership, limits and cancellation details.
-
-Shutdown cancels and waits for streams and host callbacks. Refreshes are throttled,
-single-flight and configuration-generation checked. Typed YAML updates are atomic.
-Each turn uses a coherent config/model snapshot; text/image ordering is preserved.
-Malformed NDJSON fails the turn; all output modes share terminal and usage semantics.
-
-Vision and reasoning efforts survive both compiled and dynamic model registration.
-Fallback output budgets choose defaults, not fabricated hard limits. Explicit client
-budgets are clamped only by a provided gateway_output_limit. Current ABI client
-cancellation is detected on the next failed host emit, not instantaneously during
-upstream silence. CI runs race tests and builds the actual shared library.
+For model generation options, run `python3 scripts/extract-models.py --help`; the workflow contains the full package-fetch and generation procedure. The five-component design and source layout are documented in [ARCHITECTURE.md](ARCHITECTURE.md).
