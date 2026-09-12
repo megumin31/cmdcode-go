@@ -2,157 +2,168 @@
 
 English | [中文](README.zh-CN.md)
 
-An unofficial [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin for Command Code Go accounts. It translates OpenAI chat requests to the CLI's `/alpha/generate` gateway, with streaming, tool calls, reasoning content and image input.
+An unofficial plugin that connects **Command Code Go to CLIProxyAPI**. Use your existing OpenAI-compatible clients to access Go-plan models through CLIProxyAPI, without running the Command Code CLI separately.
 
-Not affiliated with Command Code / Langbase. The upstream protocol is undocumented; compatibility may change independently of the model list.
+Supports streaming and non-streaming chat, tool calls, reasoning content, and image input on supported models. The plugin runs inside CLIProxyAPI as a single `.so` library; no additional service is required.
 
-## Quick start
+## Installation
 
-These commands target **Linux**. Build for the host's OS, architecture and libc; building on the host is the simplest option, but a compatible build environment also works. Do not copy a macOS library onto Linux.
+The steps below target Linux. You need:
 
-Requirements: a CLIProxyAPI v7 host compatible with the SDK version in [go/go.mod](go/go.mod), the Go toolchain specified there, a C compiler and libc development headers, and a Command Code account key. The official CLI is not required when you supply the key directly.
+- A CLIProxyAPI v7 host with plugin ABI support. See [go.mod](go/go.mod) for the SDK version used by this project.
+- Go 1.26+, a C compiler, and libc development headers. The build must be compatible with the host's OS, CPU architecture, and libc.
+- A working Command Code Go account and its account key.
 
-### 1. Build
+### 1. Build the plugin
 
 ```bash
 git clone https://github.com/megumin31/cmdcode-go.git
 cd cmdcode-go
 mkdir -p build
 (cd go && CGO_ENABLED=1 go build -buildmode=c-shared -o ../build/cmdcode-go.so .)
-file build/cmdcode-go.so
 ```
 
-For an existing checkout, update with `git pull --ff-only origin main` from a clean `main` branch instead of cloning again. Check that `file` reports a Linux shared library for the host's architecture.
+The output is `build/cmdcode-go.so`. You do not need to install the generated `.h` file.
 
-### 2. Configure the host
+### 2. Configure and install
 
-Merge this into the host's configuration; retain other plugins:
+Add this to your CLIProxyAPI configuration. If a `plugins` section already exists, merge the fields into it:
 
 ```yaml
 plugins:
-  dir: "plugins"
+  dir: "/absolute/path/to/plugins"
   configs:
     cmdcode-go:
       enabled: true
       priority: 1
-      # api_key: "user_..."  # Or provide COMMANDCODE_KEY to the host process.
+      api_key: "YOUR_COMMAND_CODE_KEY"
 ```
 
-The account key must be available to the **running host**, not just your interactive shell. For a service, use its environment configuration, plugin configuration, or a CLI auth file readable by the service account.
-
-Key precedence: host auth attributes → plugin `api_key` → `COMMANDCODE_KEY` / `COMMANDCODE_API_KEY` / `COMMAND_CODE_API_KEY` → CLI auth files. File search order is `$COMMANDCODE_CONFIG_DIR/auth.json`, `~/.commandcode/auth.json`, then `~/.config/commandcode/auth.json`.
-
-### 3. Install and restart
-
-Run from the repository root. Set the **actual plugin directory** first. This example assumes a user systemd unit named `cliproxyapi.service`; use your real service manager/unit otherwise.
+Replace the directory and key with your own values. Stop CLIProxyAPI, then run from the repository root:
 
 ```bash
-PLUGIN_DIR=/absolute/path/to/cliproxyapi/plugins
-(
-  set -e
-  mkdir -p "$PLUGIN_DIR"
-  systemctl --user stop cliproxyapi.service
-  if [ -f "$PLUGIN_DIR/cmdcode-go.so" ]; then
-    cp -p "$PLUGIN_DIR/cmdcode-go.so" "$PLUGIN_DIR/cmdcode-go.so.bak"
-  fi
-  install -m 755 build/cmdcode-go.so "$PLUGIN_DIR/cmdcode-go.so.new"
-  mv "$PLUGIN_DIR/cmdcode-go.so.new" "$PLUGIN_DIR/cmdcode-go.so"
-  systemctl --user start cliproxyapi.service
-)
+install -Dm755 build/cmdcode-go.so /absolute/path/to/plugins/cmdcode-go.so
 ```
 
-Stop before replacing a loaded library. The conditional backup also works on first installation. Only the shared library is needed at runtime; the generated C header is not installed.
+Start CLIProxyAPI using your usual service manager or startup command.
 
-### 4. Verify
+**Reuse an existing login:** If the account running CLIProxyAPI has already logged in to Command Code, omit `api_key` to use its CLI auth file. Alternatively, provide `COMMANDCODE_KEY` to the host process. For systemd or containers, set the variable in the service or container environment.
 
-For the systemd example:
+## Usage
 
-```bash
-systemctl --user is-active cliproxyapi.service
-journalctl --user -u cliproxyapi.service --since "5 minutes ago" --no-pager
-```
+Keep your client configured with **CLIProxyAPI's URL and client API key**. The Command Code account key is used only by the plugin to authenticate upstream.
 
-Check that the host loads/registers the plugin and reports no configuration or library-loading errors. A successful model refresh does **not** print a required success line; a working compiled fallback is also valid.
-
-Query the host using its own client API key, **not** the Command Code account key:
+List the models exposed by your host:
 
 ```bash
-CLIPROXY_URL=http://127.0.0.1:8317  # Replace with the host's address.
+export CLIPROXY_URL="http://127.0.0.1:8317"
+export CLIPROXY_API_KEY="YOUR_CLIPROXYAPI_KEY"
+
 curl --fail-with-body -sS "$CLIPROXY_URL/v1/models" \
   -H "Authorization: Bearer $CLIPROXY_API_KEY"
 ```
 
-Set `CLIPROXY_API_KEY` to your host client key before running. Compare the returned IDs with [models.json](models.json); host configuration may add prefixes or aliases, so do not require every ID to start with `cmdcode-go/`. Registration verifies loading, not upstream account access. To verify inference, send a small chat request using an ID returned by the host; that makes a real upstream call.
-
-## Configuration reference
-
-All plugin-specific options go under `plugins.configs.cmdcode-go`.
-
-| Option | Default / behavior |
-|---|---|
-| `api_key` | Optional; credential precedence is described above |
-| `base_url` | `https://api.commandcode.ai`; `COMMANDCODE_BASE_URL` overrides the default |
-| `cli_version` | `COMMANDCODE_CLI_VERSION`, otherwise `1.47.1`; protocol fingerprint, separate from catalog version |
-| `project_slug` | `cliproxyapi` |
-| `permission_mode` | `standard` |
-| `models` | Empty = all roster models; accepts YAML lists |
-| `disable_models` | Empty = none; takes precedence over `models` |
-| `models_url` | This repository's `main/models.json` on raw.githubusercontent.com |
-| `models_file` | Local JSON override; takes precedence over `models_url` |
-| `models_refresh_interval` | `"6h"`; `"0"` selects the compiled roster and disables URL/file refresh |
-
-Names accept canonical IDs, unique short names, and the `cmdcode-go/` prefix. Invalid configuration updates are rejected as a whole. Omitted keys retain their previous values during reconfiguration; use `null` or an empty list to clear a value.
-
-Do not automatically set `cli_version` to the model catalog version: a catalog update does not establish wire-protocol compatibility.
-
-## Model updates
-
-The [models workflow](.github/workflows/models.yml) runs every six hours. It resolves an exact npm version, reads that package's `models.md`, and includes only documented Go models. [models.dev](https://github.com/anomalyco/models.dev) adds metadata without changing membership. Validated results update both JSON and the compiled fallback.
-
-Runtime refresh is **lazy**: model registration/list calls check the six-hour TTL; there is no independent background timer. Local files are checked by modification time. Failures retain the last good roster, cool down for five minutes, and never replace it with an empty list. The fetch timeout is eight seconds.
-
-Model-list changes normally need no rebuild. A host restart resets the in-memory refresh state; simply touching an unchanged host config does not guarantee a refresh. For reproducible/offline lists, use `models_file`; see [ARCHITECTURE.md](ARCHITECTURE.md) for schema and validation details.
-
-## Upgrade and rollback
-
-For code changes: update a clean checkout, repeat **Build**, then **Install and restart**, then **Verify**. Keep the backup until verification succeeds.
-
-To restore the previous binary, first set `PLUGIN_DIR` as above:
+Choose an ID belonging to this plugin from the response, replace `MODEL_ID` below, and send a streaming chat request:
 
 ```bash
-test -f "$PLUGIN_DIR/cmdcode-go.so.bak" &&
-systemctl --user stop cliproxyapi.service &&
-cp -p "$PLUGIN_DIR/cmdcode-go.so.bak" "$PLUGIN_DIR/cmdcode-go.so.restore" &&
-mv "$PLUGIN_DIR/cmdcode-go.so.restore" "$PLUGIN_DIR/cmdcode-go.so" &&
-systemctl --user start cliproxyapi.service
+curl --fail-with-body -N "$CLIPROXY_URL/v1/chat/completions" \
+  -H "Authorization: Bearer $CLIPROXY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "MODEL_ID",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "stream": true
+  }'
 ```
 
-Verify again after rollback. This restores the binary only; restore configuration separately if you changed it. Remote models still follow `main` unless you pin a local file or disable refresh.
+See [models.json](models.json) for the roster. Your host may apply aliases or prefixes, so use the IDs returned by `/v1/models`. Listing a model confirms registration; a successful chat request also verifies upstream account access.
+
+## Configuration
+
+These fields belong under `plugins.configs.cmdcode-go`. The host manages `enabled` and `priority`.
+
+| Field | Purpose | Default behavior |
+|---|---|---|
+| `api_key` | Command Code account key | Falls back to environment variables and CLI auth files |
+| `models` | Allow only these models; YAML list | An empty list allows the entire roster |
+| `disable_models` | Exclude these models; YAML list | No exclusions; takes precedence over `models` |
+| `models_file` | Local model JSON | Unset; overrides the remote URL when supplied |
+| `models_url` | Remote model JSON URL | This repository's `main/models.json` |
+| `models_refresh_interval` | Remote roster refresh interval | `"6h"`; `"0"` disables both remote and local refresh and uses the compiled roster |
+
+Model filters accept full IDs, unique short names, and the `cmdcode-go/` prefix. Prefer full IDs copied from the roster to avoid ambiguity.
+
+<details>
+<summary>Advanced configuration and credential lookup</summary>
+
+| Field | Default | Purpose |
+|---|---|---|
+| `base_url` | `https://api.commandcode.ai` | Upstream gateway; also reads `COMMANDCODE_BASE_URL` when unset |
+| `cli_version` | `1.47.1` | CLI version sent with requests; also reads `COMMANDCODE_CLI_VERSION` when unset |
+| `project_slug` | `cliproxyapi` | Project identifier sent upstream |
+| `permission_mode` | `standard` | Permission mode sent upstream |
+
+`cli_version` is separate from the package version used to generate the model roster. Roster updates do not change the request protocol or version identifier.
+
+Credentials are resolved in this order, using the first nonempty value:
+
+1. The `api_key` auth attribute selected by the host for the request.
+2. Plugin configuration `api_key`.
+3. Environment variables `COMMANDCODE_KEY`, `COMMANDCODE_API_KEY`, then `COMMAND_CODE_API_KEY`.
+4. `$COMMANDCODE_CONFIG_DIR/auth.json`, `~/.commandcode/auth.json`, then `~/.config/commandcode/auth.json`.
+
+Here, `~` belongs to the account running the host. Auth files may use either `apiKey` or `api_key`.
+
+Invalid configuration updates are rejected as a whole. Omitted fields retain their previous values during reconfiguration. Use `null` to clear a string field or `[]` to clear a model filter.
+
+</details>
+
+## Model and plugin updates
+
+**Model roster:** GitHub Actions checks the Command Code npm package every six hours. Its bundled `models.md` is the sole source of model membership and minimum plan requirements; only Go-plan models are included. models.dev supplies additional metadata such as output lengths and modalities. Generated results are committed after validation and tests pass.
+
+The plugin fetches the roster on demand: it checks for refresh when the host invokes a plugin model registration or query method, rather than pushing updates to the host every six hours. A failed refresh retains the last good roster; an initial failure uses the compiled roster. Model updates therefore usually need no rebuild, but when clients see them depends on when the host queries the plugin again.
+
+To pin a roster, save this repository's `models.json` locally and set `models_file`. Local files are reloaded when their modification time changes; leave refresh enabled. To use only the compiled roster, set `models_refresh_interval: "0"`.
+
+**Plugin code:** Pull the latest code and rebuild, then stop the host, replace the `.so`, and start it again. Keep the previous library and configuration for rollback. Rolling back the library does not pin the remote roster.
+
+## Compatibility
+
+This project is not affiliated with Command Code / Langbase and uses the CLI's undocumented gateway protocol. Upstream protocol or account-policy changes may require a plugin update; roster updates alone cannot address every compatibility issue.
+
+- Tool messages and results are supported, but forced tool selection is not fully supported.
+- Image and reasoning capabilities depend on the model. Reasoning text is returned in `reasoning_content`.
+- Output lengths from models.dev are reference metadata, not confirmed Command Code gateway limits.
+- When upstream token usage is absent, usage fields contain zeros; this does not mean the request consumed no tokens.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for additional protocol and lifecycle boundaries.
 
 ## Troubleshooting
 
-| Symptom | What to check |
+| Problem | Check |
 |---|---|
-| `invalid ELF header`, wrong architecture, missing libc symbols | Build OS/architecture/libc compatibility and CGO toolchain |
-| Plugin absent from host | Actual plugin directory, enabled configuration, file permissions and host logs |
-| Missing key / authentication error | Service account's environment and auth files; distinguish host client key from upstream account key |
-| Model list unchanged | Lazy refresh trigger, TTL, file modification time, and five-minute failure cooldown |
-| `model refresh failed` | URL/network or JSON validation; the previous/compiled roster remains available |
-| Version-related upstream rejection | Configured fingerprint and current upstream response; do not infer it from catalog version |
-| Empty answer with `finish_reason: length` | Reasoning may consume the budget; inspect reasoning content and requested token limit |
-| Shutdown takes time / truncated stream | Inspect logs; shutdown waits for callbacks, and missing finish events are errors |
+| Plugin fails to load | Host logs, plugin directory, permissions, and the library's architecture/libc compatibility |
+| Authentication fails | Whether the Command Code key is valid and visible to the host process |
+| Client cannot find a model | IDs from `/v1/models`, model filters, and whether the host has queried the plugin again |
+| `model refresh failed` in logs | Remote connectivity or the local JSON file; the last valid roster remains available |
+| Reasoning appears but the answer is empty | Whether the response ended with `finish_reason: length` and reasoning exhausted the token budget |
 
-## Limits and development
+## Development
 
-Missing upstream usage is reported as zeros, not a measured zero-cost turn. Fallback output budgets choose defaults; explicit budgets are clamped only by a known `gateway_output_limit`. Forced tool selection is not fully supported. Client disconnection is detected on a failed host emit; an idle upstream may continue until the request timeout. See [architecture and protocol limits](ARCHITECTURE.md).
-
-From the repository root:
+Run from the repository root:
 
 ```bash
 python3 -m unittest discover -s scripts -p 'test_*.py'
 (cd go && go vet ./... && go test -race ./...)
 ```
 
-Python tests need Python 3.11+. Go tests use local servers and injected callbacks; they do not require an upstream key. Downloading build/test dependencies requires network access on first use. CI also builds the c-shared library. These checks do not establish live gateway compatibility.
+Python tests require Python 3.11+. Tests use local data and mock servers; no upstream key is required. Also run the shared-library build above before submitting code changes.
 
-For model generation options, run `python3 scripts/extract-models.py --help`; the workflow contains the full package-fetch and generation procedure. The five-component design and source layout are documented in [ARCHITECTURE.md](ARCHITECTURE.md).
+- [ARCHITECTURE.md](ARCHITECTURE.md): component ownership, protocol translation, and concurrency design.
+- [models workflow](.github/workflows/models.yml): package retrieval, generation, and validation.
+- `python3 scripts/extract-models.py --help`: generator options.
+
+## License
+
+[GPL-3.0](LICENSE).
