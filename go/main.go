@@ -56,21 +56,18 @@ static void free_host_buffer(void* ptr, size_t len) {
 import "C"
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"unsafe"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 func main() {}
 
 //export cliproxy_plugin_init
 func cliproxy_plugin_init(host *C.cliproxy_host_api, plugin *C.cliproxy_plugin_api) C.int {
-	if plugin == nil {
+	if plugin == nil || host == nil || host.abi_version != C.uint32_t(pluginabi.ABIVersion) {
 		return 1
 	}
 	C.store_host_api(host)
@@ -91,8 +88,12 @@ func cliproxyPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t,
 		writeResponse(response, errorEnvelope("invalid_method", "method is required"))
 		return 1
 	}
+	if requestLen > 64<<20 || (request == nil && requestLen != 0) {
+		writeResponse(response, errorEnvelope("invalid_request", "invalid or oversized ABI request"))
+		return 1
+	}
 	raw := decodeRequest(request, requestLen)
-	out, errHandle := handleMethod(C.GoString(method), raw)
+	out, errHandle := defaultPlugin.Handle(C.GoString(method), raw)
 	if errHandle != nil {
 		writeResponse(response, errorEnvelope("plugin_error", errHandle.Error()))
 		return 1
@@ -110,7 +111,10 @@ func cliproxyPluginFree(ptr unsafe.Pointer, len C.size_t) {
 }
 
 //export cliproxyPluginShutdown
-func cliproxyPluginShutdown() {}
+func cliproxyPluginShutdown() {
+	defaultPlugin.Shutdown()
+	C.store_host_api(nil)
+}
 
 func decodeRequest(request *C.uint8_t, requestLen C.size_t) []byte {
 	if request == nil || requestLen == 0 {
@@ -120,8 +124,8 @@ func decodeRequest(request *C.uint8_t, requestLen C.size_t) []byte {
 }
 
 // hostCall invokes a host callback and treats transport failure or an explicit
-// error envelope as an error. Unparseable responses are accepted as success so
-// host-side shape drift cannot wedge an otherwise healthy stream.
+// error envelope as an error. Malformed host responses are protocol failures,
+// not acknowledgements that a frame was delivered.
 func hostCall(method string, payload []byte) error {
 	cMethod := C.CString(method)
 	defer C.free(unsafe.Pointer(cMethod))
@@ -132,20 +136,27 @@ func hostCall(method string, payload []byte) error {
 		req = (*C.uint8_t)(raw)
 	}
 	var response C.cliproxy_buffer
-	if rc := C.call_host_api(cMethod, req, C.size_t(len(payload)), &response); rc != 0 {
+	rc := C.call_host_api(cMethod, req, C.size_t(len(payload)), &response)
+	defer C.free_host_buffer(response.ptr, response.len)
+	if rc != 0 {
 		return fmt.Errorf("cmdcode-go: host call %s failed", method)
 	}
-	defer C.free_host_buffer(response.ptr, response.len)
 	if response.ptr == nil || response.len == 0 {
 		return nil
+	}
+	if response.len > 4<<20 {
+		return fmt.Errorf("cmdcode-go: oversized host callback response")
 	}
 	raw := C.GoBytes(response.ptr, C.int(response.len))
 	var env pluginabi.Envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
-		return nil
+		return fmt.Errorf("cmdcode-go: invalid host callback response: %w", err)
 	}
-	if !env.OK && env.Error != nil {
-		msg := env.Error.Message
+	if !env.OK {
+		msg := ""
+		if env.Error != nil {
+			msg = env.Error.Message
+		}
 		if msg == "" {
 			msg = "host call failed"
 		}
@@ -166,51 +177,6 @@ func closeHostStream(streamID, errMsg string) error {
 	}
 	req, _ := json.Marshal(payload)
 	return hostCall("host.stream.close", req)
-}
-
-func handleMethod(method string, request []byte) ([]byte, error) {
-	switch method {
-	case pluginabi.MethodPluginRegister, pluginabi.MethodPluginReconfigure:
-		configure(request)
-		return okEnvelope(registration())
-	case pluginabi.MethodModelRegister:
-		maybeRefreshModels()
-		return okEnvelope(pluginapi.ModelRegistrationResponse{Provider: ProviderKey, Models: registeredModels()})
-	case pluginabi.MethodModelStatic, pluginabi.MethodModelForAuth:
-		maybeRefreshModels()
-		return okEnvelope(pluginapi.ModelResponse{Provider: ProviderKey, Models: registeredModels()})
-	case pluginabi.MethodModelRoute:
-		return okEnvelope(routeModel(request))
-	case pluginabi.MethodExecutorIdentifier:
-		return okEnvelope(map[string]string{"identifier": ProviderKey})
-	case pluginabi.MethodExecutorExecute:
-		return executeNonStream(context.Background(), request)
-	case pluginabi.MethodExecutorExecuteStream:
-		return executeStream(context.Background(), request)
-	case pluginabi.MethodExecutorCountTokens:
-		return countTokens(request)
-	case pluginabi.MethodResponseNormalizeBefore:
-		return normalizeBefore(request)
-	case pluginabi.MethodExecutorHTTPRequest:
-		return okEnvelope(pluginapi.ExecutorHTTPResponse{
-			StatusCode: http.StatusNotImplemented,
-			Headers:    http.Header{"Content-Type": []string{"application/json"}},
-			Body:       []byte(`{"error":"cmdcode-go has no generic HTTP bridge"}`),
-		})
-	default:
-		return errorEnvelope("unknown_method", "unknown method: "+method), nil
-	}
-}
-
-func routeModel(request []byte) pluginapi.ModelRouteResponse {
-	var req pluginapi.ModelRouteRequest
-	if err := json.Unmarshal(request, &req); err != nil {
-		return pluginapi.ModelRouteResponse{Handled: false}
-	}
-	if canonical, ok := matchModel(req.RequestedModel); ok && modelAllowed(canonical) {
-		return pluginapi.ModelRouteResponse{Handled: true, TargetKind: pluginapi.ModelRouteTargetSelf, Reason: "cmdcode-go model"}
-	}
-	return pluginapi.ModelRouteResponse{Handled: false}
 }
 
 func okEnvelope(v any) ([]byte, error) {

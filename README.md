@@ -82,7 +82,7 @@ Key resolution order: host auth attributes → plugin `api_key` → `COMMANDCODE
 ## Behavior notes
 
 - The gateway rejects `stream:false`; the plugin always sends `stream:true`.
-- Default output budget is `64000` tokens when the client sends none (same as the official CLI), clamped down to each model's registered output cap. Explicit client budgets are respected.
+- An omitted output budget uses the smaller of `64000` and the model's reference/default budget. Explicit budgets are clamped only by a known `gateway_output_limit`, never by a metadata fallback.
 - `reasoning_effort` is clamped to the gateway enum (`low|medium|high|xhigh|max`); unknown values degrade to the model default instead of failing the turn.
 - Reasoning-heavy models spend `max_tokens` on thinking first — tiny caps return `finish_reason: length` with empty content. Give generous budgets (models were observed using 300+ thinking tokens).
 - Chunk payloads stay raw JSON — the host adds `data:` framing and the terminal `data: [DONE]` itself. Pre-framed payloads would double up.
@@ -99,10 +99,10 @@ Key resolution order: host auth attributes → plugin `api_key` → `COMMANDCODE
 | File | Role |
 |---|---|
 | `go/main.go` | c-shared exports, host RPC dispatch |
-| `go/gateway.go` | OpenAI ↔ `/alpha/generate` translation, usage framing, output budgets |
-| `go/stream.go` | Incremental NDJSON→SSE relay (`liveStream`), truncation handling |
+| `go/request.go` + `go/response.go` | OpenAI ↔ `/alpha/generate` translation, usage framing, output budgets |
+| `go/stream.go` | Incremental NDJSON→SSE relay (`EventDecoder`), truncation handling |
 | `go/executor.go` | Stream / non-stream / buffered execution paths |
-| `go/models.go` | Go-plan roster lookups, allow/deny filtering, routing (compiled table + remote snapshot via `activeModelTable`) |
+| `go/models.go` | Go-plan roster lookups, allow/deny filtering, routing (compiled table + remote snapshot via immutable snapshots) |
 | `go/models_generated.go` | Compiled fallback table — generated, do not edit (see below) |
 | `go/models_remote.go` | `models.json` fetch/validation/TTL snapshot, offline fallback |
 | `go/config.go` | Host YAML config, key / URL / version resolution |
@@ -150,3 +150,20 @@ python3 scripts/extract-models.py \
   --models-dev "$META/models" --models-dev-rev "$(git -C "$META" rev-parse HEAD)" \
   --out models.json --gen go/models_generated.go
 ```
+
+## Component design
+
+The single-package, c-shared plugin has five concrete components: Plugin,
+ConfigStore, ModelRegistry, GatewayClient and EventDecoder.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership, limits and cancellation details.
+
+Shutdown cancels and waits for streams and host callbacks. Refreshes are throttled,
+single-flight and configuration-generation checked. Typed YAML updates are atomic.
+Each turn uses a coherent config/model snapshot; text/image ordering is preserved.
+Malformed NDJSON fails the turn; all output modes share terminal and usage semantics.
+
+Vision and reasoning efforts survive both compiled and dynamic model registration.
+Fallback output budgets choose defaults, not fabricated hard limits. Explicit client
+budgets are clamped only by a provided gateway_output_limit. Current ABI client
+cancellation is detected on the next failed host emit, not instantaneously during
+upstream silence. CI runs race tests and builds the actual shared library.

@@ -87,7 +87,8 @@ jobs:
           cd go
           test -z "$(gofmt -l .)"
           go vet ./...
-          go test ./...
+          go test -race ./...
+          go build -buildmode=c-shared -o "$RUNNER_TEMP/cmdcode-go.so" .
 
       - name: Commit refreshed roster
         if: github.event_name != 'pull_request'

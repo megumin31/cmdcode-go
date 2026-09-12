@@ -13,47 +13,40 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
-// streamIDRequest mirrors the host rpcExecutorRequest envelope just far
-// enough to recover the stream id for async relay.
 type streamIDRequest struct {
 	pluginapi.ExecutorRequest
 	StreamID string `json:"stream_id"`
 }
 
 func decodeExecutorRequest(request []byte) (pluginapi.ExecutorRequest, string, error) {
-	var req pluginapi.ExecutorRequest
-	if err := json.Unmarshal(request, &req); err != nil {
-		return req, "", fmt.Errorf("cmdcode-go: invalid executor request: %w", err)
+	var r streamIDRequest
+	if err := json.Unmarshal(request, &r); err != nil {
+		return r.ExecutorRequest, "", fmt.Errorf("invalid executor request: %w", err)
 	}
-	var id streamIDRequest
-	if err := json.Unmarshal(request, &id); err == nil {
-		return req, id.StreamID, nil
-	}
-	return req, "", nil
+	return r.ExecutorRequest, r.StreamID, nil
 }
 
-// turnPrep bundles one validated upstream turn. errResp carries a ready-made
-// error envelope for credential/model problems; err covers translation bugs.
 type turnPrep struct {
 	key      string
 	envelope []byte
+	config   pluginConfig
 }
 
-func prepareTurn(req pluginapi.ExecutorRequest) (turnPrep, []byte, error) {
-	key := resolveAPIKey(req.AuthAttributes)
+func (p *Plugin) prepareTurn(req pluginapi.ExecutorRequest) (turnPrep, []byte, error) {
+	snap := p.snapshot()
+	key := snap.config.resolveAPIKey(req.AuthAttributes)
 	if key == "" {
-		return turnPrep{}, errorEnvelope("missing_api_key",
-			"cmdcode-go: no API key (plugin api_key, COMMANDCODE_KEY env, or ~/.commandcode/auth.json)"), nil
+		return turnPrep{}, errorEnvelope("missing_api_key", "cmdcode-go: no API key configured"), nil
 	}
-	upstream := resolveUpstreamModel(req.Model)
+	upstream := snap.models.Resolve(req.Model)
 	if upstream == "" {
-		return turnPrep{}, errorEnvelope("missing_model", "cmdcode-go: request model is empty"), nil
+		return turnPrep{}, errorEnvelope("missing_model", "cmdcode-go: empty model"), nil
 	}
-	envelope, err := buildEnvelope(upstream, req.Payload)
-	if err != nil {
-		return turnPrep{}, nil, err
+	if _, known := snap.models.Match(req.Model); known && !snap.models.Allowed(upstream, snap.config) {
+		return turnPrep{}, errorEnvelope("model_disabled", "cmdcode-go: model excluded by configuration"), nil
 	}
-	return turnPrep{key: key, envelope: envelope}, nil, nil
+	envelope, err := buildEnvelopeWithSnapshot(upstream, req.Payload, snap)
+	return turnPrep{key: key, envelope: envelope, config: snap.config}, nil, err
 }
 
 // upstreamErrorEnvelope maps gateway failures to host-native errors. The
@@ -88,99 +81,90 @@ func upstreamErrorEnvelope(status int, body []byte) []byte {
 	return raw
 }
 
-// executeNonStream runs one upstream turn and returns a full OpenAI
-// chat.completion payload. The gateway only speaks streaming NDJSON, so the
-// stream is consumed server-side and buffered.
-func executeNonStream(ctx context.Context, request []byte) ([]byte, error) {
+func decodeError(err error) ([]byte, error) {
+	var status *upstreamStatusError
+	if errors.As(err, &status) {
+		return upstreamErrorEnvelope(status.status, []byte(status.message)), nil
+	}
+	return nil, err
+}
+
+func (p *Plugin) consumeTurn(ctx context.Context, prep turnPrep) (*accumulated, []byte, error) {
+	resp, cancel, err := p.Gateway.Open(ctx, prep.config, prep.envelope, prep.key)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer cancel()
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodySample))
+		return nil, upstreamErrorEnvelope(resp.StatusCode, body), nil
+	}
+	d := NewEventDecoder("", false)
+	d.MaxEventBytes, d.MaxResponseBytes = p.Gateway.MaxEventBytes, p.Gateway.MaxResponseBytes
+	if err := d.Consume(resp.Body, nil); err != nil {
+		raw, e := decodeError(err)
+		return nil, raw, e
+	}
+	return &d.acc, nil, nil
+}
+
+func (p *Plugin) executeNonStream(ctx context.Context, request []byte) ([]byte, error) {
 	req, _, err := decodeExecutorRequest(request)
 	if err != nil {
 		return nil, err
 	}
-	prep, errResp, err := prepareTurn(req)
-	if errResp != nil || err != nil {
-		return errResp, err
+	prep, raw, err := p.prepareTurn(req)
+	if raw != nil || err != nil {
+		return raw, err
 	}
-	status, body, err := postGenerate(ctx, prep.envelope, prep.key)
-	if err != nil {
-		return nil, err
+	acc, raw, err := p.consumeTurn(ctx, prep)
+	if raw != nil || err != nil {
+		return raw, err
 	}
-	if status < 200 || status >= 300 {
-		return upstreamErrorEnvelope(status, body), nil
-	}
-	acc, err := parseStream(body)
-	if err != nil {
-		var statusErr *upstreamStatusError
-		if errors.As(err, &statusErr) {
-			return upstreamErrorEnvelope(statusErr.status, []byte(statusErr.message)), nil
-		}
-		return nil, err
-	}
-	return okEnvelope(pluginapi.ExecutorResponse{
-		Payload: acc.toOpenAIResponse(req.Model),
-		Headers: http.Header{"Content-Type": []string{"application/json"}},
-	})
+	return okEnvelope(pluginapi.ExecutorResponse{Payload: acc.toOpenAIResponse(req.Model), Headers: http.Header{"Content-Type": {"application/json"}}})
 }
 
-// executeStream relays one upstream turn incrementally through host stream
-// callbacks and returns immediately. Hosts that predate stream ids get the
-// buffered fallback instead.
-func executeStream(ctx context.Context, request []byte) ([]byte, error) {
-	req, streamID, err := decodeExecutorRequest(request)
+func (p *Plugin) executeStream(ctx context.Context, request []byte) ([]byte, error) {
+	req, id, err := decodeExecutorRequest(request)
 	if err != nil {
 		return nil, err
 	}
-	prep, errResp, err := prepareTurn(req)
-	if errResp != nil || err != nil {
-		return errResp, err
+	prep, raw, err := p.prepareTurn(req)
+	if raw != nil || err != nil {
+		return raw, err
 	}
-	if streamID == "" {
-		return executeStreamBuffered(ctx, prep.key, req, prep.envelope)
+	if id == "" {
+		acc, raw, err := p.consumeTurn(ctx, prep)
+		if raw != nil || err != nil {
+			return raw, err
+		}
+		chunks := []pluginapi.ExecutorStreamChunk{}
+		for _, f := range acc.toOpenAIChunks(req.Model) {
+			chunks = append(chunks, pluginapi.ExecutorStreamChunk{Payload: f})
+		}
+		return okEnvelope(map[string]any{"headers": map[string][]string{"content-type": {"text/event-stream"}}, "chunks": chunks})
 	}
-	resp, cancel, err := openGenerateStream(ctx, prep.envelope, prep.key)
+	// Streaming outlives the initiating RPC, so it gets a sibling task rooted
+	// in the plugin lifetime, not the short-lived RPC context.
+	streamCtx, done, err := p.begin(p.root)
 	if err != nil {
+		return nil, err
+	}
+	resp, cancel, err := p.Gateway.Open(streamCtx, prep.config, prep.envelope, prep.key)
+	if err != nil {
+		done()
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodySample))
 		resp.Body.Close()
 		cancel()
+		done()
 		return upstreamErrorEnvelope(resp.StatusCode, body), nil
 	}
-	model := req.Model
-	go relayStream(streamID, model, resp.Body, cancel)
-	return okEnvelope(map[string]any{
-		"headers": map[string][]string{"content-type": {"text/event-stream"}},
-		"chunks":  []pluginapi.ExecutorStreamChunk{},
-	})
-}
-
-// executeStreamBuffered is the fallback for hosts without stream ids: the
-// full turn is consumed first and returned as complete SSE frames.
-func executeStreamBuffered(ctx context.Context, key string, req pluginapi.ExecutorRequest, envelope []byte) ([]byte, error) {
-	status, body, err := postGenerate(ctx, envelope, key)
-	if err != nil {
-		return nil, err
-	}
-	if status < 200 || status >= 300 {
-		return upstreamErrorEnvelope(status, body), nil
-	}
-	acc, err := parseStream(body)
-	if err != nil {
-		var statusErr *upstreamStatusError
-		if errors.As(err, &statusErr) {
-			return upstreamErrorEnvelope(statusErr.status, []byte(statusErr.message)), nil
-		}
-		return nil, err
-	}
-	frames := acc.toOpenAIChunks(req.Model)
-	chunks := make([]pluginapi.ExecutorStreamChunk, 0, len(frames))
-	for _, frame := range frames {
-		chunks = append(chunks, pluginapi.ExecutorStreamChunk{Payload: frame})
-	}
-	return okEnvelope(map[string]any{
-		"headers": map[string][]string{"content-type": {"text/event-stream"}},
-		"chunks":  chunks,
-	})
+	go func() { defer done(); p.relayStream(streamCtx, id, req.Model, resp.Body, cancel) }()
+	return okEnvelope(map[string]any{"headers": map[string][]string{"content-type": {"text/event-stream"}}, "chunks": []pluginapi.ExecutorStreamChunk{}})
 }
 
 // countTokens answers host token-count probes with a cheap heuristic. The
@@ -190,7 +174,11 @@ func countTokens(request []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	estimate := len(req.Payload)/4 + len(req.OriginalRequest)/4 + 8
+	payload := req.Payload
+	if len(req.OriginalRequest) > 0 {
+		payload = req.OriginalRequest
+	}
+	estimate := len(payload)/4 + 8
 	if estimate < 0 {
 		estimate = 0
 	}

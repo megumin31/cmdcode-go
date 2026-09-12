@@ -191,9 +191,17 @@ def main():
         "package main", "", "var modelTable = []modelDef{",
     ]
     for m in models:
-        lines.append("\t{%s, %s, %d, %d}," % (
-            json.dumps(m["id"], ensure_ascii=False), json.dumps(m["display"], ensure_ascii=False),
-            m["context"], m["output"]))
+        fields = [
+            "id: " + json.dumps(m["id"], ensure_ascii=False),
+            "display: " + json.dumps(m["display"], ensure_ascii=False),
+            "description: " + json.dumps(m["description"], ensure_ascii=False),
+            "context: " + str(m["context"]), "output: " + str(m["output"]),
+            "outputSource: " + json.dumps(m["output_source"]),
+            "efforts: []string{" + ", ".join(json.dumps(x) for x in m["reasoning_efforts"]) + "}",
+        ]
+        if m["vision"] is not None:
+            fields.append("vision: modelBool(" + str(m["vision"]).lower() + ")")
+        lines.append("\t{" + ", ".join(fields) + "},")
     lines.extend(["}", ""])
     # Validate both outputs before replacing either file.
     Path(a.out).write_text(json.dumps(doc, indent=2) + "\n")

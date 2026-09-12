@@ -76,12 +76,10 @@ func TestBuildEnvelopeSystemExtraction(t *testing.T) {
 
 func TestMaxTokensClampedToModelCap(t *testing.T) {
 	resetDynamicState(t)
-	dynMu.Lock()
-	dynTable = []modelDef{
-		{"test/small", "Small", 262000, 32768},
-		{"test/large", "Large", 1000000, 131072},
-	}
-	dynMu.Unlock()
+	defaultPlugin.Models = NewModelRegistry([]modelDef{
+		{id: "test/small", display: "Small", context: 262000, output: 32768, gatewayOutput: 32768},
+		{id: "test/large", display: "Large", context: 1000000, output: 131072},
+	}, nil)
 	build := func(model, payload string) float64 {
 		t.Helper()
 		raw, err := buildEnvelope(model, []byte(payload))
@@ -773,21 +771,9 @@ func TestUpstreamErrorEnvelope(t *testing.T) {
 
 func resetDynamicState(t *testing.T) {
 	t.Helper()
-	prevCfg := getConfig()
-	dynMu.Lock()
-	prevTable, prevOrigin := dynTable, dynOrigin
-	prevFetched, prevAttempt, prevFileMT := dynFetchedAt, dynAttemptAt, dynFileMT
-	dynTable, dynOrigin = nil, ""
-	dynFetchedAt, dynAttemptAt, dynFileMT = time.Time{}, time.Time{}, time.Time{}
-	dynMu.Unlock()
-	setConfig(pluginConfig{})
-	t.Cleanup(func() {
-		setConfig(prevCfg)
-		dynMu.Lock()
-		dynTable, dynOrigin = prevTable, prevOrigin
-		dynFetchedAt, dynAttemptAt, dynFileMT = prevFetched, prevAttempt, prevFileMT
-		dynMu.Unlock()
-	})
+	previous := defaultPlugin
+	defaultPlugin = NewPlugin(nil, nil)
+	t.Cleanup(func() { defaultPlugin.Shutdown(); defaultPlugin = previous })
 }
 
 func remoteFixture(extra string) string {

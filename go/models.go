@@ -1,116 +1,130 @@
 package main
 
 import (
-	"strings"
-
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
+	"strings"
 )
 
-// Go-plan model roster. Canonical gateway ids served over /alpha/generate.
-// The compiled modelTable (go/models_generated.go, extracted from the
-// official package's models.md by scripts/extract-models.py) is the fallback; at
-// runtime maybeRefreshModels() may replace it with the Action-maintained
-// models.json when the operator configures models_url/models_file and the
-// payload validates. All lookups below go through activeModelTable so the
-// two sources never diverge in behavior. Metadata comes from models.md and
-// models.dev, with labelled operational fallbacks for missing budgets.
 type modelDef struct {
-	id      string
-	display string
-	context int64
-	output  int64
+	id, display, description string
+	context, output          int64
+	outputSource             string
+	gatewayOutput            int64
+	vision                   *bool
+	efforts                  []string
 }
 
-func registeredModels() []pluginapi.ModelInfo {
-	models := make([]pluginapi.ModelInfo, 0, len(activeModelTable()))
-	for _, def := range activeModelTable() {
-		if !modelAllowed(def.id) {
-			continue
+func modelBool(v bool) *bool { return &v }
+
+// A snapshot owns its slices and indexes; callers never mutate it.
+type modelSnapshot struct {
+	defs    []modelDef
+	byID    map[string]int
+	byShort map[string]int
+}
+
+func newModelSnapshot(defs []modelDef) *modelSnapshot {
+	s := &modelSnapshot{defs: append([]modelDef(nil), defs...), byID: map[string]int{}, byShort: map[string]int{}}
+	for i := range s.defs {
+		d := &s.defs[i]
+		d.efforts = append([]string(nil), d.efforts...)
+		if d.vision != nil {
+			v := *d.vision
+			d.vision = &v
 		}
-		models = append(models, pluginapi.ModelInfo{
-			ID:                         def.id,
-			Object:                     "model",
-			OwnedBy:                    ProviderKey,
-			Type:                       ProviderKey,
-			DisplayName:                def.display,
-			Name:                       def.id,
-			Description:                "CommandCode Go plan model via " + ProviderKey,
-			ContextLength:              def.context,
-			MaxCompletionTokens:        def.output,
-			InputTokenLimit:            def.context,
-			OutputTokenLimit:           def.output,
-			SupportedGenerationMethods: []string{"chat"},
-			SupportedInputModalities:   []string{"text"},
-			SupportedOutputModalities:  []string{"text"},
-			SupportedParameters:        []string{"temperature", "max_tokens", "tools", "stream"},
-			UserDefined:                true,
-		})
+		s.byID[strings.ToLower(d.id)] = i
+		short := strings.ToLower(d.id[strings.LastIndex(d.id, "/")+1:])
+		if _, exists := s.byShort[short]; exists {
+			s.byShort[short] = -1
+		} else {
+			s.byShort[short] = i
+		}
 	}
-	return models
+	return s
 }
 
-// modelAllowed applies the operator's models allowlist (empty = all) and
-// disable_models denylist. Entries accept the same flexible forms as client
-// requests (canonical id, cmdcode-go/ prefix, short name).
-func modelAllowed(canonical string) bool {
-	cfg := getConfig()
-	for _, denied := range cfg.DisableModels {
-		if c, ok := matchModel(denied); ok && c == canonical {
+func (s *modelSnapshot) Match(name string) (string, bool) {
+	key := strings.ToLower(strings.TrimSpace(name))
+	key = strings.TrimPrefix(key, ProviderKey+"/")
+	if i, ok := s.byID[key]; ok {
+		return s.defs[i].id, true
+	}
+	if !strings.Contains(key, "/") {
+		if i, ok := s.byShort[key]; ok && i >= 0 {
+			return s.defs[i].id, true
+		}
+	}
+	return "", false
+}
+
+func (s *modelSnapshot) Allowed(id string, cfg pluginConfig) bool {
+	for _, x := range cfg.DisableModels {
+		if canonical, ok := s.Match(x); ok && canonical == id {
 			return false
 		}
 	}
 	if len(cfg.Models) == 0 {
 		return true
 	}
-	for _, allowed := range cfg.Models {
-		if c, ok := matchModel(allowed); ok && c == canonical {
+	for _, x := range cfg.Models {
+		if canonical, ok := s.Match(x); ok && canonical == id {
 			return true
 		}
 	}
 	return false
 }
 
-// matchModel reports whether name addresses this provider. Accepted forms:
-// the canonical gateway id, the id prefixed with cmdcode-go/, or the
-// bare short name after the last slash (case-insensitive).
-func matchModel(name string) (string, bool) {
-	trimmed := strings.TrimSpace(name)
-	if trimmed == "" {
-		return "", false
-	}
-	lowered := strings.ToLower(trimmed)
-	for _, prefix := range []string{"cmdcode-go/"} {
-		if strings.HasPrefix(lowered, prefix) {
-			trimmed = trimmed[len(prefix):]
-			lowered = strings.ToLower(trimmed)
-			break
-		}
-	}
-	for _, def := range activeModelTable() {
-		if strings.EqualFold(def.id, trimmed) {
-			return def.id, true
-		}
-	}
-	if !strings.Contains(trimmed, "/") {
-		for _, def := range activeModelTable() {
-			short := def.id[strings.LastIndex(def.id, "/")+1:]
-			if strings.EqualFold(short, trimmed) {
-				return def.id, true
-			}
-		}
-	}
-	return "", false
-}
-
-// resolveUpstreamModel maps a client-requested model to the canonical gateway
-// id. Unknown ids pass through untouched so the gateway itself reports the
-// authoritative error instead of this plugin guessing.
-func resolveUpstreamModel(name string) string {
-	if canonical, ok := matchModel(name); ok {
-		return canonical
+func (s *modelSnapshot) Resolve(name string) string {
+	if id, ok := s.Match(name); ok {
+		return id
 	}
 	return strings.TrimSpace(name)
+}
+
+func (s *modelSnapshot) Definition(id string) (modelDef, bool) {
+	i, ok := s.byID[strings.ToLower(id)]
+	if !ok {
+		return modelDef{}, false
+	}
+	return s.defs[i], true
+}
+
+func (s *modelSnapshot) Registered(cfg pluginConfig) []pluginapi.ModelInfo {
+	result := make([]pluginapi.ModelInfo, 0, len(s.defs))
+	for _, d := range s.defs {
+		if !s.Allowed(d.id, cfg) {
+			continue
+		}
+		inputs := []string{"text"}
+		if d.vision != nil && *d.vision {
+			inputs = append(inputs, "image")
+		}
+		// Unknown/fallback budgets are not advertised as verified model limits.
+		output := d.output
+		if d.outputSource == "fallback" {
+			output = 0
+		}
+		if d.gatewayOutput > 0 {
+			output = d.gatewayOutput
+		}
+		m := pluginapi.ModelInfo{
+			ID: d.id, Object: "model", OwnedBy: ProviderKey, Type: ProviderKey,
+			DisplayName: d.display, Name: d.id, Description: d.description,
+			ContextLength: d.context, InputTokenLimit: d.context,
+			MaxCompletionTokens: output, OutputTokenLimit: output,
+			SupportedGenerationMethods: []string{"chat"},
+			SupportedInputModalities:   inputs, SupportedOutputModalities: []string{"text"},
+			SupportedParameters: []string{"temperature", "max_tokens", "tools", "stream"},
+			UserDefined:         true,
+		}
+		if len(d.efforts) > 0 {
+			m.Thinking = &pluginapi.ThinkingSupport{Levels: append([]string(nil), d.efforts...)}
+			m.SupportedParameters = append(m.SupportedParameters, "reasoning_effort")
+		}
+		result = append(result, m)
+	}
+	return result
 }
 
 func registration() map[string]any {
@@ -130,7 +144,7 @@ func registration() map[string]any {
 				{"Name": "permission_mode", "Type": "string", "Description": "Envelope permissionMode. Default standard."},
 				{"Name": "models_url", "Type": "string", "Description": "Remote models.json URL (Action-maintained). Default tracks this repo's main branch; empty = default."},
 				{"Name": "models_file", "Type": "string", "Description": "Local models.json path override (reloaded on change). Takes precedence over models_url."},
-				{"Name": "models_refresh_interval", "Type": "string", "Description": "Remote refresh interval (Go duration, default 24h; 0 disables remote refresh)."},
+				{"Name": "models_refresh_interval", "Type": "string", "Description": "Remote refresh interval (Go duration, default 6h; 0 disables remote refresh)."},
 			},
 		},
 		"capabilities": map[string]any{

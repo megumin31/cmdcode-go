@@ -78,7 +78,7 @@ Key 解析顺序：host auth 属性 → 插件 `api_key` → `COMMANDCODE_KEY`�
 ## 行为说明
 
 - 网关拒绝 `stream:false`；插件永远发 `stream:true`。
-- 客户端没给时默认输出预算 `64000` tokens（和官方 CLI 一致），再按各模型的注册 output 上限往下 clamp；显式给的预算予以尊重。
+- 客户端没给时取 `64000` 与模型参考/默认预算的较小值；显式预算只受已确认的 `gateway_output_limit` 限制，不受元数据兜底值截断。
 - `reasoning_effort` clamp 到网关枚举（`low|medium|high|xhigh|max`）；未知值退化为模型默认，不断整轮。
 - 推理重的模型先花 `max_tokens` 想事情——预算给小了会拿到 `finish_reason: length` + 空内容。给足预算（观测到单轮思考用掉 300+ tokens）。
 - Chunk payload 保持裸 JSON——host 自己加 `data:` 分帧和结尾的 `data: [DONE]`。预分帧会 double。
@@ -95,8 +95,8 @@ Key 解析顺序：host auth 属性 → 插件 `api_key` → `COMMANDCODE_KEY`�
 | File | Role |
 |---|---|
 | `go/main.go` | c-shared 导出、host RPC 分发 |
-| `go/gateway.go` | OpenAI ↔ `/alpha/generate` 翻译、usage 组帧、output budgets |
-| `go/stream.go` | 增量 NDJSON→SSE 中继（`liveStream`）、截断处理 |
+| `go/request.go` + `go/response.go` | OpenAI ↔ `/alpha/generate` 翻译、usage 组帧、output budgets |
+| `go/stream.go` | 增量 NDJSON→SSE 中继（`EventDecoder`）、截断处理 |
 | `go/executor.go` | 流式 / 非流式 / 缓冲三条执行路径 |
 | `go/models.go` | Go 套餐名单查询、allow/deny 过滤、路由（经 `activeModelTable` 统一编译表 + 远程快照） |
 | `go/models_generated.go` | 编译期 fallback 表——生成文件，别手改（见下） |
@@ -143,3 +143,21 @@ python3 scripts/extract-models.py \
   --models-dev "$META/models" --models-dev-rev "$(git -C "$META" rev-parse HEAD)" \
   --out models.json --gen go/models_generated.go
 ```
+
+## 组件设计与正确性边界
+
+项目仍是单个 Go package / c-shared 插件，按五个职责组织：
+Plugin（生命周期）、ConfigStore（配置）、ModelRegistry（模型快照与刷新）、
+GatewayClient（HTTP 通信）、EventDecoder（统一事件解析）。
+详细职责、资源上限和取消机制见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
+关闭插件时会取消并等待后台流和宿主回调；模型刷新有失败冷却、并发抑制和配置代际检查。
+标准 YAML 解析支持列表、引号和注释，非法配置不会部分生效。
+每次请求使用固定配置与名单快照；图文顺序不变；损坏 NDJSON 会报错，不再静默丢弃。
+所有输出模式共用同一终止规则及缓存 token 用量格式。
+
+模型的 vision 与 reasoning efforts 同时进入编译名单和动态注册。
+fallback 输出预算只用于默认请求，不再伪装成硬上限。
+用户显式指定的预算仅在名单提供 gateway_output_limit 时截断。
+当前 ABI 无直接的客户端取消通知：断开后通过下一次 emit 失败终止，静默上游仍受请求超时约束。
+新增测试及 CI 使用竞态检查并实际构建 c-shared 库。

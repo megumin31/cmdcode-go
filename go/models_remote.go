@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,32 +12,16 @@ import (
 	"time"
 )
 
-// Remote model roster. The Action-maintained models.json (see
-// scripts/extract-models.py) may replace the compiled modelTable at
-// runtime. The compiled table is always the fallback: any fetch, parse, or
-// validation failure keeps the previous snapshot (or the compiled table),
-// never an empty list, so registration works offline and on first boot.
-
 const (
-	modelsSchemaVersion = 1
-	// defaultModelsURL tracks the main branch of this repository. The
-	// workflow in .github/workflows/models.yml refreshes it from the
-	// latest official CLI release.
-	defaultModelsURL = "https://raw.githubusercontent.com/megumin31/cmdcode-go/main/models.json"
-	// defaultRefreshInterval mirrors the 6-hour Action cadence.
-	defaultRefreshInterval = 6 * time.Hour
-	// modelsFetchTimeout bounds one refresh attempt; model registration
-	// is not latency-critical but must never hang the host.
-	modelsFetchTimeout = 8 * time.Second
-	// modelsMinRetryInterval rate-limits attempts after failures so a
-	// dead URL cannot slow every registration call.
-	modelsMinRetryInterval = 5 * time.Minute
-	// modelsMustContain guards against truncated/foreign payloads.
-	modelsMustContain = "deepseek/deepseek-v4-flash"
-	// modelsFallbackContext/Output fill entries that omit budgets,
-	// erring on the side of 256K/64K like the compiled table.
-	modelsFallbackContext int64 = 262144
-	modelsFallbackOutput  int64 = 65536
+	modelsSchemaVersion          = 1
+	defaultModelsURL             = "https://raw.githubusercontent.com/megumin31/cmdcode-go/main/models.json"
+	defaultRefreshInterval       = 6 * time.Hour
+	modelsFetchTimeout           = 8 * time.Second
+	modelsMinRetryInterval       = 5 * time.Minute
+	modelsMustContain            = "deepseek/deepseek-v4-flash"
+	modelsFallbackContext  int64 = 262144
+	modelsFallbackOutput   int64 = 65536
+	maxRosterBytes         int64 = 4 << 20
 )
 
 type remoteModelFile struct {
@@ -45,242 +30,213 @@ type remoteModelFile struct {
 	SourceCLIVersion string        `json:"source_cli_version"`
 	Models           []remoteModel `json:"models"`
 }
-
 type remoteModel struct {
-	ID          string `json:"id"`
-	Display     string `json:"display"`
-	Description string `json:"description"`
-	Context     int64  `json:"context"`
-	Output      int64  `json:"output"`
+	ID            string   `json:"id"`
+	Display       string   `json:"display"`
+	Description   string   `json:"description"`
+	Context       int64    `json:"context"`
+	Output        int64    `json:"output"`
+	OutputSource  string   `json:"output_source"`
+	Vision        *bool    `json:"vision"`
+	Efforts       []string `json:"reasoning_efforts"`
+	GatewayOutput int64    `json:"gateway_output_limit"`
 }
 
-var dynMu sync.Mutex
-var dynTable []modelDef
-var dynOrigin string
-var dynFetchedAt time.Time
-var dynAttemptAt time.Time
-var dynFileMT time.Time
+// ModelRegistry owns refresh state and immutable snapshots. One refresh per
+// configuration generation; stale downloads cannot publish after reconfigure.
+type ModelRegistry struct {
+	mu                         sync.Mutex
+	fallback                   *modelSnapshot
+	current                    *modelSnapshot
+	cfg                        pluginConfig
+	generation                 uint64
+	loading                    bool
+	cancel                     context.CancelFunc
+	attempted, fetched, fileMT time.Time
+	failed                     bool
+	client                     *http.Client
+	now                        func() time.Time
+}
 
-// activeModelTable returns the remote snapshot when one is loaded,
-// otherwise the compiled fallback.
-func activeModelTable() []modelDef {
-	dynMu.Lock()
-	defer dynMu.Unlock()
-	if len(dynTable) > 0 {
-		return dynTable
+func NewModelRegistry(defs []modelDef, client *http.Client) *ModelRegistry {
+	if client == nil {
+		client = &http.Client{Timeout: modelsFetchTimeout}
 	}
-	return modelTable
+	s := newModelSnapshot(defs)
+	return &ModelRegistry{fallback: s, current: s, client: client, now: time.Now}
 }
 
-// modelsRefreshInterval parses the operator's refresh interval. Empty means
-// the default; "0" or a negative duration disables remote refresh.
 func modelsRefreshInterval(cfg pluginConfig) (time.Duration, bool) {
-	raw := strings.TrimSpace(cfg.ModelsRefreshInterval)
-	if raw == "" {
+	if cfg.ModelsRefreshInterval == "" {
 		return defaultRefreshInterval, true
 	}
-	dur, err := time.ParseDuration(raw)
+	d, err := time.ParseDuration(cfg.ModelsRefreshInterval)
 	if err != nil {
-		fmt.Fprintf(os.Stderr,
-			"cmdcode-go: invalid models_refresh_interval %q, using %s\n",
-			raw, defaultRefreshInterval)
 		return defaultRefreshInterval, true
 	}
-	if dur <= 0 {
-		return 0, false
-	}
-	return dur, true
+	return d, d > 0
 }
 
-// maybeRefreshModels best-effort refreshes the roster from models_file (when
-// set, reloaded on mtime change) or models_url (when TTL-expired). It never
-// returns an error: failures keep the previous snapshot and are logged.
-func maybeRefreshModels() {
-	cfg := getConfig()
+func (r *ModelRegistry) Configure(cfg pluginConfig) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cfg.ModelsURL == cfg.ModelsURL && r.cfg.ModelsFile == cfg.ModelsFile && r.cfg.ModelsRefreshInterval == cfg.ModelsRefreshInterval {
+		return
+	}
+	r.generation++
+	if r.cancel != nil {
+		r.cancel()
+	}
+	r.cancel, r.loading = nil, false
+	r.cfg = cloneConfig(cfg)
+	r.attempted, r.fetched, r.fileMT = time.Time{}, time.Time{}, time.Time{}
+	r.failed = false
+	if _, enabled := modelsRefreshInterval(cfg); !enabled {
+		r.current = r.fallback
+	}
+}
+
+func (r *ModelRegistry) Snapshot() *modelSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.current
+}
+
+// Refresh returns the last good snapshot on any failure. Concurrent callers
+// do not wait for or start duplicate downloads. Initial failures are throttled.
+func (r *ModelRegistry) Refresh(ctx context.Context) error {
+	r.mu.Lock()
+	cfg := r.cfg
 	interval, enabled := modelsRefreshInterval(cfg)
-	if !enabled {
-		dynMu.Lock()
-		if len(dynTable) > 0 {
-			dynTable = nil
-			dynOrigin = ""
-			fmt.Fprintf(os.Stderr,
-				"cmdcode-go: remote model refresh disabled, using compiled roster\n")
+	now := r.now()
+	if !enabled || r.loading || (r.failed && now.Sub(r.attempted) < modelsMinRetryInterval) {
+		r.mu.Unlock()
+		return nil
+	}
+	var mt time.Time
+	if cfg.ModelsFile != "" {
+		fi, err := os.Stat(cfg.ModelsFile)
+		if err != nil {
+			r.attempted, r.failed = now, true
+			r.mu.Unlock()
+			return err
 		}
-		dynMu.Unlock()
-		return
-	}
-
-	file := strings.TrimSpace(cfg.ModelsFile)
-	url := strings.TrimSpace(cfg.ModelsURL)
-	if url == "" {
-		url = defaultModelsURL
-	}
-	origin := "url:" + url
-	if file != "" {
-		origin = "file:" + file
-	}
-
-	dynMu.Lock()
-	staleOrigin := origin != dynOrigin
-	var fileMT time.Time
-	haveFile := false
-	if file != "" {
-		if fi, err := os.Stat(file); err != nil {
-			if len(dynTable) == 0 && time.Since(dynAttemptAt) >= modelsMinRetryInterval {
-				dynAttemptAt = time.Now()
-				dynMu.Unlock()
-				fmt.Fprintf(os.Stderr,
-					"cmdcode-go: models file %q unreadable (%v), using compiled roster\n",
-					file, err)
-				return
-			}
-			dynMu.Unlock()
-			return
-		} else {
-			haveFile = true
-			fileMT = fi.ModTime()
+		mt = fi.ModTime()
+		if !r.fetched.IsZero() && mt.Equal(r.fileMT) {
+			r.mu.Unlock()
+			return nil
 		}
+	} else if !r.fetched.IsZero() && now.Sub(r.fetched) < interval {
+		r.mu.Unlock()
+		return nil
 	}
-	need := staleOrigin || len(dynTable) == 0
-	if !need && haveFile {
-		need = fileMT.After(dynFileMT)
+	generation := r.generation
+	requestCtx, cancel := context.WithTimeout(ctx, modelsFetchTimeout)
+	r.loading, r.cancel, r.attempted = true, cancel, now
+	r.mu.Unlock()
+	defer cancel()
+	raw, err := r.fetch(requestCtx, cfg)
+	var defs []modelDef
+	if err == nil {
+		defs, _, err = parseModelsFile(raw)
 	}
-	if !need && !haveFile {
-		need = time.Since(dynFetchedAt) >= interval &&
-			time.Since(dynAttemptAt) >= modelsMinRetryInterval
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if generation != r.generation {
+		return nil
 	}
-	if need && !haveFile {
-		dynAttemptAt = time.Now()
+	r.loading, r.cancel = false, nil
+	if requestCtx.Err() != nil {
+		err = requestCtx.Err()
 	}
-	dynMu.Unlock()
-	if !need {
-		return
+	r.failed = err != nil
+	if err != nil {
+		return err
 	}
+	r.current = newModelSnapshot(defs)
+	r.fetched, r.fileMT = r.now(), mt
+	return nil
+}
 
-	var (
-		raw []byte
-		err error
-	)
-	if haveFile {
-		raw, err = os.ReadFile(file)
+func (r *ModelRegistry) fetch(ctx context.Context, cfg pluginConfig) ([]byte, error) {
+	var reader io.ReadCloser
+	if cfg.ModelsFile != "" {
+		f, err := os.Open(cfg.ModelsFile)
+		if err != nil {
+			return nil, err
+		}
+		reader = f
 	} else {
-		raw, err = fetchModels(url)
+		url := cfg.ModelsURL
+		if url == "" {
+			url = defaultModelsURL
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := r.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("model list HTTP %d", resp.StatusCode)
+		}
+		reader = resp.Body
 	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr,
-			"cmdcode-go: models refresh from %s failed (%v), keeping %s\n",
-			origin, err, describeRoster())
-		return
-	}
-	defs, cliVer, err := parseModelsFile(raw)
-	if err != nil {
-		fmt.Fprintf(os.Stderr,
-			"cmdcode-go: models refresh from %s rejected (%v), keeping %s\n",
-			origin, err, describeRoster())
-		return
-	}
-	dynMu.Lock()
-	dynTable = defs
-	dynOrigin = origin
-	dynFetchedAt = time.Now()
-	dynFileMT = fileMT
-	dynMu.Unlock()
-	fmt.Fprintf(os.Stderr,
-		"cmdcode-go: models refreshed from %s: %d models (cli %s)\n",
-		origin, len(defs), cliVer)
+	defer reader.Close()
+	return readBounded(reader, maxRosterBytes)
 }
 
-func describeRoster() string {
-	dynMu.Lock()
-	defer dynMu.Unlock()
-	if len(dynTable) > 0 {
-		return fmt.Sprintf("previous snapshot (%d models)", len(dynTable))
-	}
-	return fmt.Sprintf("compiled roster (%d models)", len(modelTable))
-}
-
-func fetchModels(url string) ([]byte, error) {
-	client := &http.Client{Timeout: modelsFetchTimeout}
-	resp, err := client.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: status %d", url, resp.StatusCode)
-	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		return nil, err
-	}
-	return raw, nil
-}
-
-// parseModelsFile validates a models.json payload and converts it to model
-// defs. Unknown fields are ignored so the schema can grow without breaking
-// older plugins.
 func parseModelsFile(raw []byte) ([]modelDef, string, error) {
 	var doc remoteModelFile
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, "", fmt.Errorf("invalid JSON: %w", err)
+		return nil, "", fmt.Errorf("invalid models JSON: %w", err)
 	}
 	if doc.SchemaVersion != modelsSchemaVersion {
-		return nil, "", fmt.Errorf("schema_version %d, want %d",
-			doc.SchemaVersion, modelsSchemaVersion)
+		return nil, "", fmt.Errorf("unsupported models schema %d", doc.SchemaVersion)
 	}
-	if len(doc.Models) == 0 {
-		return nil, "", fmt.Errorf("no models in payload")
-	}
-	if len(doc.Models) > 300 {
-		return nil, "", fmt.Errorf("%d models, want at most 300",
-			len(doc.Models))
+	if len(doc.Models) == 0 || len(doc.Models) > 300 {
+		return nil, "", fmt.Errorf("invalid model count %d", len(doc.Models))
 	}
 	defs := make([]modelDef, 0, len(doc.Models))
-	skipped := 0
+	seen, shorts := map[string]bool{}, map[string]bool{}
+	found := false
 	for _, m := range doc.Models {
 		id := strings.TrimSpace(m.ID)
-		if id == "" {
-			skipped++
-			continue
+		short := strings.ToLower(id[strings.LastIndex(id, "/")+1:])
+		if id == "" || strings.ContainsAny(id, " \t\r\n") || seen[strings.ToLower(id)] || shorts[short] {
+			return nil, "", fmt.Errorf("empty, invalid or duplicate model ID/short name: %q", id)
 		}
-		display := strings.TrimSpace(m.Display)
-		if display == "" {
-			display = id
+		seen[strings.ToLower(id)], shorts[short] = true, true
+		if strings.EqualFold(id, modelsMustContain) {
+			found = true
 		}
-		context := m.Context
-		if context <= 0 {
-			context = modelsFallbackContext
+		if m.Context < 0 || m.Output < 0 || m.GatewayOutput < 0 {
+			return nil, "", fmt.Errorf("negative model budget: %s", id)
 		}
-		output := m.Output
-		if output <= 0 {
-			output = modelsFallbackOutput
+		if m.Context == 0 {
+			m.Context = modelsFallbackContext
+		}
+		if m.Output == 0 {
+			m.Output = min(modelsFallbackOutput, m.Context)
+			m.OutputSource = "fallback"
+		}
+		if m.Output > m.Context || m.GatewayOutput > m.Context {
+			return nil, "", fmt.Errorf("output exceeds context: %s", id)
+		}
+		if m.Display == "" {
+			m.Display = id
 		}
 		defs = append(defs, modelDef{
-			id:      id,
-			display: display,
-			context: context,
-			output:  output,
+			id: id, display: m.Display, description: m.Description, context: m.Context,
+			output: m.Output, outputSource: m.OutputSource, vision: m.Vision,
+			efforts: append([]string(nil), m.Efforts...), gatewayOutput: m.GatewayOutput,
 		})
 	}
-	if len(defs) == 0 {
-		return nil, "", fmt.Errorf("no usable model entries (%d skipped)",
-			skipped)
-	}
-	found := false
-	for _, def := range defs {
-		if strings.EqualFold(def.id, modelsMustContain) {
-			found = true
-			break
-		}
-	}
-	// Legacy payloads retain their anchor check. The documented roster may
-	// legitimately retire that model; membership must follow models.md.
 	if !found && doc.Source != "command-code bundled models.md" {
-		return nil, "", fmt.Errorf("missing anchor model %q", modelsMustContain)
+		return nil, "", fmt.Errorf("missing legacy anchor model %q", modelsMustContain)
 	}
-	cliVer := strings.TrimSpace(doc.SourceCLIVersion)
-	if cliVer == "" {
-		cliVer = "unknown"
-	}
-	return defs, cliVer, nil
+	return defs, doc.SourceCLIVersion, nil
 }
