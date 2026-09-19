@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "source": "command-code bundled models.md",
-  "source_cli_version": "1.56.2",
+  "source_cli_version": "1.58.0",
   "source_path": "dist/bundled/command-code-knowledge/reference/models.md",
-  "source_sha256": "ec109847ee65c909e8059562f632f447c03765b36a91502f0982d572784fafa0",
-  "source_package_integrity": "sha512-GaCWwDelYIE05yBvARI9yvXH5T4+7YhD7GTPsCsEuGzcOSFIpimYWh8NPXZmHyBBKfUOIDihQBqADz1yO1BmaQ==",
-  "models_dev_rev": "fe33af6dcb907ac1ccf1b5fedb5d3d6dbacafccd",
+  "source_sha256": "0bd72338ef66327aab1a1d300777cb911a6d894ad550163b87a8da12bfa0b361",
+  "source_package_integrity": "sha512-M5g9Owy6zj3UC81JmaN4oB3dZOu5yBhhvR8WUUcI/gxdlNtqz1EfaOyyUfN6d0rDFa1kVU251/j6pkEzL05TvQ==",
+  "models_dev_rev": "043d5793090f6a78503f36abf97214782f10281a",
   "counts": {
     "catalog": 72,
     "entitled": 46
@@ -168,23 +168,23 @@
       "metadata_ref": ""
     },
     {
-      "id": "meituan/LongCat-2.0:free",
+      "id": "meituan/LongCat-2.0",
       "display": "LongCat 2.0",
       "description": "trillion-parameter agentic coding with 1M context",
       "min_plan": "Go",
       "context": 1050000,
       "context_raw": "1.05M",
       "reasoning_efforts": [],
-      "pricing_raw": "$0/$0 \u00b7 cache $0",
+      "pricing_raw": "$0.3/$1.2 \u00b7 cache $0.006",
       "context_source": "models.md",
       "output": 131072,
-      "output_source": "carry",
+      "output_source": "modelsdev",
       "output_ref": "meituan/longcat-2.0.toml",
       "min_plan_source": "models.md",
       "reasoning_efforts_source": "models.md",
-      "vision": null,
-      "vision_source": "unresolved",
-      "metadata_ref": ""
+      "vision": false,
+      "vision_source": "modelsdev",
+      "metadata_ref": "meituan/longcat-2.0.toml"
     },
     {
       "id": "meta/muse-spark-1.2-contributor",
@@ -970,5 +970,5 @@
       "metadata_ref": "zhipuai/glm-5.3.toml"
     }
   ],
-  "fetched_at": "2026-09-18T20:52:19Z"
+  "fetched_at": "2026-09-19T04:34:14Z"
 }
