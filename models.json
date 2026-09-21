@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "source": "command-code bundled models.md",
-  "source_cli_version": "1.58.1",
+  "source_cli_version": "1.60.0",
   "source_path": "dist/bundled/command-code-knowledge/reference/models.md",
-  "source_sha256": "0bd72338ef66327aab1a1d300777cb911a6d894ad550163b87a8da12bfa0b361",
-  "source_package_integrity": "sha512-wmNysXCbdLeYc/kc3NjoE33S+o9Q1m0XCS9gIkG/7UZD/ZSlskyR1Vk6m9MnIUABIahBKs15IZ9K82aLnp3Pqg==",
-  "models_dev_rev": "1c56caef93a8e78727d6e859a1ee115cf133e3c8",
+  "source_sha256": "0dbbe9113025cb50cc2e9d155d8c00de3567f61c67aaedc96fc57ef32ef62445",
+  "source_package_integrity": "sha512-D+m7+Lyh1RAHw2hyo7UcX9KSvW/cNqEyLvXR2Z7TW9P3Lm+YJbJ4Pt2XwIetONQS7NRjvx1c/kvly00gH0gMow==",
+  "models_dev_rev": "5d374d40b34fd48c28957a94cd6b397419a3cfd8",
   "counts": {
-    "catalog": 72,
-    "entitled": 46
+    "catalog": 74,
+    "entitled": 47
   },
   "models": [
     {
@@ -681,6 +681,29 @@
       "metadata_ref": "stepfun/step-3.7-flash.toml"
     },
     {
+      "id": "stepfun/Step-5-Preview",
+      "display": "Step 5 Preview",
+      "description": "600B sparse-MoE agentic coding with 1M context",
+      "min_plan": "Go",
+      "context": 1000000,
+      "context_raw": "1M",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "pricing_raw": "$1/$2.7 \u00b7 cache $0.05",
+      "context_source": "models.md",
+      "output": 1000000,
+      "output_source": "modelsdev",
+      "output_ref": "stepfun/step-5-preview.toml",
+      "min_plan_source": "models.md",
+      "reasoning_efforts_source": "models.md",
+      "vision": true,
+      "vision_source": "modelsdev",
+      "metadata_ref": "stepfun/step-5-preview.toml"
+    },
+    {
       "id": "tencent/hy3-paid",
       "display": "Tencent Hy3",
       "description": "sparse-MoE reasoning & agentic tool use",
@@ -970,5 +993,5 @@
       "metadata_ref": "zhipuai/glm-5.3.toml"
     }
   ],
-  "fetched_at": "2026-09-21T12:42:58Z"
+  "fetched_at": "2026-09-21T21:56:58Z"
 }
