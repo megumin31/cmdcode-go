@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "source": "command-code bundled models.md",
-  "source_cli_version": "1.60.0",
+  "source_cli_version": "1.62.1",
   "source_path": "dist/bundled/command-code-knowledge/reference/models.md",
-  "source_sha256": "0dbbe9113025cb50cc2e9d155d8c00de3567f61c67aaedc96fc57ef32ef62445",
-  "source_package_integrity": "sha512-D+m7+Lyh1RAHw2hyo7UcX9KSvW/cNqEyLvXR2Z7TW9P3Lm+YJbJ4Pt2XwIetONQS7NRjvx1c/kvly00gH0gMow==",
-  "models_dev_rev": "5d374d40b34fd48c28957a94cd6b397419a3cfd8",
+  "source_sha256": "e19c337f038be6f21f166117e4fd55566b45682aa03d7f542b7b08ebdcfdd9a0",
+  "source_package_integrity": "sha512-g3+uDRSzDaR3ySG4P60qrbm8Fbgg5VxRgBa28Evs3QKmpBGgj7q37NJt/UvqEYb6ke/ta02019epc049oeNQgQ==",
+  "models_dev_rev": "848a1b9ea6ba0fe4f568b2b38b4e694645a0230e",
   "counts": {
-    "catalog": 74,
-    "entitled": 47
+    "catalog": 77,
+    "entitled": 49
   },
   "models": [
     {
@@ -845,6 +845,44 @@
       "metadata_ref": "xiaomi/mimo-v2.5-pro.toml"
     },
     {
+      "id": "xiaomi/mimo-v2.6-flash",
+      "display": "MiMo V2.6 Flash",
+      "description": "efficient multimodal agentic coding with 1M context",
+      "min_plan": "Go",
+      "context": 1050000,
+      "context_raw": "1.05M",
+      "reasoning_efforts": [],
+      "pricing_raw": "$0.14/$0.28 \u00b7 cache $0.0028",
+      "context_source": "models.md",
+      "output": 131072,
+      "output_source": "modelsdev",
+      "output_ref": "xiaomi/mimo-v2.6-flash.toml",
+      "min_plan_source": "models.md",
+      "reasoning_efforts_source": "models.md",
+      "vision": true,
+      "vision_source": "modelsdev",
+      "metadata_ref": "xiaomi/mimo-v2.6-flash.toml"
+    },
+    {
+      "id": "xiaomi/mimo-v2.6-pro",
+      "display": "MiMo V2.6 Pro",
+      "description": "flagship multimodal agentic coding with 1M context",
+      "min_plan": "Go",
+      "context": 1050000,
+      "context_raw": "1.05M",
+      "reasoning_efforts": [],
+      "pricing_raw": "$0.435/$0.87 \u00b7 cache $0.0036",
+      "context_source": "models.md",
+      "output": 131072,
+      "output_source": "modelsdev",
+      "output_ref": "xiaomi/mimo-v2.6-pro.toml",
+      "min_plan_source": "models.md",
+      "reasoning_efforts_source": "models.md",
+      "vision": true,
+      "vision_source": "modelsdev",
+      "metadata_ref": "xiaomi/mimo-v2.6-pro.toml"
+    },
+    {
       "id": "z-ai/glm-5.3-flash",
       "display": "GLM-5.3 Flash",
       "description": "fast, affordable GLM coding with 1M context",
@@ -993,5 +1031,5 @@
       "metadata_ref": "zhipuai/glm-5.3.toml"
     }
   ],
-  "fetched_at": "2026-09-21T21:56:58Z"
+  "fetched_at": "2026-09-22T04:50:26Z"
 }
