@@ -125,3 +125,7 @@ python3 scripts/extract-models.py \
 ```
 
 Output budgets 按 bundle 值 → [anomalyco/models.dev](https://github.com/anomalyco/models.dev) `[limit].output`（stem 精确匹配，`-free` 别名计入；超 context 窗口（超单位容差）的值丢弃）→ `--prev` carry → context ≤204800 给 32768 → 默认 65536。Contexts 按 Tr 覆盖 → 目录值 → models.dev（仅 CLI 自己 fallback 到 200000 默认时）→ 200000。每条记 `output_source`/`context_source`（`bundle`/`modelsdev`/`carry`/`heuristic`，`cli`/`modelsdev`/`default`）。Action 每 6 小时对 `command-code@latest` 跑一遍提取器，经 `gofmt`/`go vet`/`go test` 门禁后提交 `models.json` + `go/models_generated.go`。
+
+## 许可证
+
+本项目采用 GNU Affero 通用公共许可证第 3 版（仅限此版本，`AGPL-3.0-only`）。完整协议见 [LICENSE](LICENSE)。

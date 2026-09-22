@@ -129,3 +129,7 @@ python3 scripts/extract-models.py \
 ```
 
 Output budgets resolve as bundle value → [anomalyco/models.dev](https://github.com/anomalyco/models.dev) `[limit].output` (exact stem match, `-free` aliases included; values exceeding the context window beyond unit tolerance are rejected) → carried from `--prev` → 32768 for ≤204800-context models → 65536 default. Contexts resolve as Tr override → catalog value → models.dev (only when the CLI falls back to its 200000 default) → 200000. Every entry records `output_source`/`context_source` (`bundle`/`modelsdev`/`carry`/`heuristic`, `cli`/`modelsdev`/`default`). An Action runs the extractor against `command-code@latest` every 6 hours, gates on `gofmt`/`go vet`/`go test`, and commits `models.json` + `go/models_generated.go`.
+
+## License
+
+This project is licensed under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`). See [LICENSE](LICENSE) for the full license text.
