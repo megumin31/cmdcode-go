@@ -75,6 +75,11 @@ func TestBuildEnvelopeSystemExtraction(t *testing.T) {
 }
 
 func TestMaxTokensClampedToModelCap(t *testing.T) {
+	resetDynamicState(t)
+	defaultPlugin.Models = NewModelRegistry([]modelDef{
+		{id: "test/small", display: "Small", context: 262000, output: 32768, gatewayOutput: 32768},
+		{id: "test/large", display: "Large", context: 1000000, output: 131072},
+	}, nil)
 	build := func(model, payload string) float64 {
 		t.Helper()
 		raw, err := buildEnvelope(model, []byte(payload))
@@ -92,21 +97,19 @@ func TestMaxTokensClampedToModelCap(t *testing.T) {
 		return got
 	}
 	hi := `{"model":"m","messages":[{"role":"user","content":"hi"}]}`
-	// Qwen3.8-27B carries an explicit bundle cap (32768); GLM-style
-	// models.dev/carried caps move with upstream data, so the clamp
-	// contract pins the bundle-sourced one.
-	if got := build("Qwen/Qwen3.8-27B", hi); got != 32768 {
-		t.Errorf("default budget for Qwen3.8-27B = %v, want 32768 (model output cap)", got)
+	// Fixed fixture tests clamping independently of upstream roster changes.
+	if got := build("test/small", hi); got != 32768 {
+		t.Errorf("default budget for test/small = %v, want 32768 (model output cap)", got)
 	}
 	lo := `{"model":"m","messages":[{"role":"user","content":"hi"}],"max_tokens":1024}`
-	if got := build("Qwen/Qwen3.8-27B", lo); got != 1024 {
+	if got := build("test/small", lo); got != 1024 {
 		t.Errorf("small explicit budget = %v, want 1024", got)
 	}
 	big := `{"model":"m","messages":[{"role":"user","content":"hi"}],"max_tokens":200000}`
-	if got := build("Qwen/Qwen3.8-27B", big); got != 32768 {
+	if got := build("test/small", big); got != 32768 {
 		t.Errorf("oversized budget = %v, want clamped 32768", got)
 	}
-	if got := build("deepseek/deepseek-v4-flash", hi); got != 64000 {
+	if got := build("test/large", hi); got != 64000 {
 		t.Errorf("default budget for deepseek-v4-flash = %v, want 64000", got)
 	}
 	if got := build("unknown/model-xyz", hi); got != 64000 {
@@ -465,7 +468,7 @@ func TestMatchModel(t *testing.T) {
 		{"cmdcode-go/moonshotai/Kimi-K3", "moonshotai/Kimi-K3", true},
 		{"Kimi-K3", "moonshotai/Kimi-K3", true},
 		{"gpt-5.6-luna", "gpt-5.6-luna", true},
-		{"claude-sonnet-4-6", "", false},
+		{"__foreign_test_model__", "", false},
 		{"", "", false},
 	}
 	for _, tc := range cases {
@@ -607,7 +610,7 @@ func TestRouteModelContract(t *testing.T) {
 	if !env.OK || !env.Result.Handled || env.Result.TargetKind != "self" {
 		t.Fatalf("route = %s", raw)
 	}
-	raw, _ = handleMethod("model.route", []byte(`{"RequestedModel":"claude-sonnet-4-6"}`))
+	raw, _ = handleMethod("model.route", []byte(`{"RequestedModel":"__foreign_test_model__"}`))
 	if strings.Contains(string(raw), `"Handled":true`) {
 		t.Fatalf("foreign model must not be claimed: %s", raw)
 	}
@@ -768,21 +771,9 @@ func TestUpstreamErrorEnvelope(t *testing.T) {
 
 func resetDynamicState(t *testing.T) {
 	t.Helper()
-	prevCfg := getConfig()
-	dynMu.Lock()
-	prevTable, prevOrigin := dynTable, dynOrigin
-	prevFetched, prevAttempt, prevFileMT := dynFetchedAt, dynAttemptAt, dynFileMT
-	dynTable, dynOrigin = nil, ""
-	dynFetchedAt, dynAttemptAt, dynFileMT = time.Time{}, time.Time{}, time.Time{}
-	dynMu.Unlock()
-	setConfig(pluginConfig{})
-	t.Cleanup(func() {
-		setConfig(prevCfg)
-		dynMu.Lock()
-		dynTable, dynOrigin = prevTable, prevOrigin
-		dynFetchedAt, dynAttemptAt, dynFileMT = prevFetched, prevAttempt, prevFileMT
-		dynMu.Unlock()
-	})
+	previous := defaultPlugin
+	defaultPlugin = NewPlugin(nil, nil)
+	t.Cleanup(func() { defaultPlugin.Shutdown(); defaultPlugin = previous })
 }
 
 func remoteFixture(extra string) string {
@@ -843,6 +834,14 @@ func TestRemoteModelsInvalidFallsBack(t *testing.T) {
 		if got, want := len(registeredModels()), len(modelTable); got != want {
 			t.Errorf("%s: registry = %d, want compiled %d", name, got, want)
 		}
+	}
+}
+
+func TestDocumentedRosterCanRetireLegacyAnchor(t *testing.T) {
+	raw := []byte(`{"schema_version":1,"source":"command-code bundled models.md","models":[{"id":"test/new-go-model","context":200000,"output":32768}]}`)
+	defs, _, err := parseModelsFile(raw)
+	if err != nil || len(defs) != 1 {
+		t.Fatalf("documented roster without legacy anchor: %v, %v", defs, err)
 	}
 }
 
