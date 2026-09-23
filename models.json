@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "source": "command-code bundled models.md",
-  "source_cli_version": "1.63.0",
+  "source_cli_version": "1.64.0",
   "source_path": "dist/bundled/command-code-knowledge/reference/models.md",
-  "source_sha256": "1386b861d5a8e99e045b9dda7a02caa6c2539c74a856fd0ff7cb6c5c152fa343",
-  "source_package_integrity": "sha512-+iH93GcM42uFLSqBb6SZblnTVGXeD9g0ebmYC0Rmj9+E295IVha1vnkwnOBIAEqlUlmTgyPE7B4MeOaSbkN+cw==",
-  "models_dev_rev": "dadd2f0d0b534dc1652296a4f325287c2814ef36",
+  "source_sha256": "489286f0eff1bfaea6d36fae40b8de811fbf57d84e107f586b21e318088f50ed",
+  "source_package_integrity": "sha512-MoR1aeG7JmCW0LotUkkvO6T4Be6Nqfd3t6fllKgBIx6tWW2MPbXhr5yUC5XgMXYnlI6TNL2EeTpicNovhdIPtw==",
+  "models_dev_rev": "7d87c4fc34b195d8d5fd449903054f666fbb3d24",
   "counts": {
-    "catalog": 78,
-    "entitled": 49
+    "catalog": 80,
+    "entitled": 50
   },
   "models": [
     {
@@ -147,6 +147,31 @@
       "vision": true,
       "vision_source": "modelsdev",
       "metadata_ref": "openai/gpt-5.6-luna.toml"
+    },
+    {
+      "id": "gpt-6-luna",
+      "display": "GPT-6 Luna",
+      "description": "most efficient OpenAI model for focused, high-volume tasks",
+      "min_plan": "Go",
+      "context": 1050000,
+      "context_raw": "1.05M",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "pricing_raw": "$0.1/$0.5 \u00b7 cache $0.01 (write $0.125)",
+      "context_source": "models.md",
+      "output": 128000,
+      "output_source": "modelsdev",
+      "output_ref": "openai/gpt-6-luna.toml",
+      "min_plan_source": "models.md",
+      "reasoning_efforts_source": "models.md",
+      "vision": true,
+      "vision_source": "modelsdev",
+      "metadata_ref": "openai/gpt-6-luna.toml"
     },
     {
       "id": "inclusionai/ling-3.0-flash-sante:free",
@@ -1031,5 +1056,5 @@
       "metadata_ref": "zhipuai/glm-5.3.toml"
     }
   ],
-  "fetched_at": "2026-09-22T21:15:53Z"
+  "fetched_at": "2026-09-23T04:41:22Z"
 }
