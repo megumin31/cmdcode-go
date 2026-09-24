@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "source": "command-code bundled models.md",
-  "source_cli_version": "1.65.0",
+  "source_cli_version": "1.65.2",
   "source_path": "dist/bundled/command-code-knowledge/reference/models.md",
-  "source_sha256": "d3a07602b2bb801721facaf1a28e0617751e6a67c48440985be7f57f0fc3a106",
-  "source_package_integrity": "sha512-BThYhIklhCYKF1/n8ElO+zqwlOC8vymRU40h0xi76to+jNP0asHRy5fdKHlwl2c1uztZLsfBLHGcurbYFuiCvQ==",
-  "models_dev_rev": "fe6197d24888c605554c013076bb8e08ef2ec4ec",
+  "source_sha256": "fa5090f08fc710f4a41c958087d0b383d215df384bbfab16ea5bd2b7ecc8c982",
+  "source_package_integrity": "sha512-GBQQT3N9ZJ6fEHNmLuFporze/TDE6y+9zYHu/9rEPd/eKwTGNUtJISgC5npol2OMDzCGRM+6HemlJmsmX4C5dQ==",
+  "models_dev_rev": "c5d57fadc5825937fe4be937a0fbff1c6dd78aa5",
   "counts": {
     "catalog": 81,
     "entitled": 51
@@ -695,10 +695,10 @@
       "display": "Step 3.5 Flash",
       "description": "fast sparse-MoE agentic reasoning",
       "min_plan": "Go",
-      "context": 1000000,
-      "context_raw": "1M",
+      "context": 262000,
+      "context_raw": "262K",
       "reasoning_efforts": [],
-      "pricing_raw": "$0.1/$0.3 \u00b7 cache $0.02",
+      "pricing_raw": "$0.09/$0.3 \u00b7 cache $0.02",
       "context_source": "models.md",
       "output": 256000,
       "output_source": "modelsdev",
@@ -1079,5 +1079,5 @@
       "metadata_ref": "zhipuai/glm-5.3.toml"
     }
   ],
-  "fetched_at": "2026-09-24T17:06:59Z"
+  "fetched_at": "2026-09-24T21:28:54Z"
 }
