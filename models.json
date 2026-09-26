@@ -5,7 +5,7 @@
   "source_path": "dist/bundled/command-code-knowledge/reference/models.md",
   "source_sha256": "70c36dfdc0181dea040c8cdc4c6768bb75a0b155799f6e0ce498cf4d780f2594",
   "source_package_integrity": "sha512-C1O3FPWnJ+/XcnQ6fKg7QH8ZeKaVn/GtynNp5v0U3P0YfFOMD/F3dlSlNUooCjmghtFTM/hR7P+ZwXShno3wjA==",
-  "models_dev_rev": "c2c8d89908d1c1ecfbbc60c085d3aa926157539f",
+  "models_dev_rev": "93b330cf8f17e807734cc73907d2c80de330fc1b",
   "counts": {
     "catalog": 82,
     "entitled": 52
@@ -1102,5 +1102,5 @@
       "metadata_ref": "zhipuai/glm-5.3.toml"
     }
   ],
-  "fetched_at": "2026-09-26T04:53:05Z"
+  "fetched_at": "2026-09-26T11:19:56Z"
 }
