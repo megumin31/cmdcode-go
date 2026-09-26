@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "source": "command-code bundled models.md",
-  "source_cli_version": "1.65.4",
+  "source_cli_version": "1.66.0",
   "source_path": "dist/bundled/command-code-knowledge/reference/models.md",
-  "source_sha256": "fa5090f08fc710f4a41c958087d0b383d215df384bbfab16ea5bd2b7ecc8c982",
-  "source_package_integrity": "sha512-RLpV7beEMHz0HICP40LsDBC0cJ/NM4eE+CpHvrKB3rsN/n1nU/Cs+Yb50PQZgDaR5j0hE3a+bVFodbp9IBBYng==",
-  "models_dev_rev": "dc2bfd3f6f4eafd6f27ef8c62b7c6365b48a066e",
+  "source_sha256": "70c36dfdc0181dea040c8cdc4c6768bb75a0b155799f6e0ce498cf4d780f2594",
+  "source_package_integrity": "sha512-C1O3FPWnJ+/XcnQ6fKg7QH8ZeKaVn/GtynNp5v0U3P0YfFOMD/F3dlSlNUooCjmghtFTM/hR7P+ZwXShno3wjA==",
+  "models_dev_rev": "c2c8d89908d1c1ecfbbc60c085d3aa926157539f",
   "counts": {
-    "catalog": 81,
-    "entitled": 51
+    "catalog": 82,
+    "entitled": 52
   },
   "models": [
     {
@@ -668,6 +668,29 @@
       "metadata_ref": "alibaba/qwen3.8-omni-flash.toml"
     },
     {
+      "id": "stealth/pixel-canary",
+      "display": "Pixel Canary",
+      "description": "stealth coding model for web and mobile apps",
+      "min_plan": "Go",
+      "context": 262000,
+      "context_raw": "262K",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "xhigh"
+      ],
+      "pricing_raw": "$0/$0 \u00b7 cache $0",
+      "context_source": "models.md",
+      "output": 65536,
+      "output_source": "fallback",
+      "output_ref": "",
+      "min_plan_source": "models.md",
+      "reasoning_efforts_source": "models.md",
+      "vision": null,
+      "vision_source": "unresolved",
+      "metadata_ref": ""
+    },
+    {
       "id": "stealth/space-bunny-alpha",
       "display": "Space Bunny Alpha",
       "description": "stealth model with 1M context",
@@ -1079,5 +1102,5 @@
       "metadata_ref": "zhipuai/glm-5.3.toml"
     }
   ],
-  "fetched_at": "2026-09-25T21:32:06Z"
+  "fetched_at": "2026-09-26T04:53:05Z"
 }
