@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "source": "command-code bundled models.md",
-  "source_cli_version": "1.69.0",
+  "source_cli_version": "1.72.1",
   "source_path": "dist/bundled/command-code-knowledge/reference/models.md",
-  "source_sha256": "dff0581c3e57d58afd54aa950e09b022232461bd006ca724464cde938e967841",
-  "source_package_integrity": "sha512-OhYgJXEpTxGbZyOQ2rT75wSaV0ytG0OwhV+PO1lxdXmaA9K0V7EyAryPzM3CEFyzgll7EmxqGdh7AEudJCI1/g==",
-  "models_dev_rev": "f6d0a384bced4201bddde62d124c9f2008ee828a",
+  "source_sha256": "5cf102db5ac2b99af024fb86a548bf7929bf9612e45bdda967fcb75cf5585e92",
+  "source_package_integrity": "sha512-XMR70BPIFOtor0fUi/i2Emj43gbKYHMVlkKzEljfC7/BeXt44hcmr3rbc9SYD/wbhBiC3ObKiZmElcdTrYgNMg==",
+  "models_dev_rev": "cd81c44b37ad1a0ebe7e34966ade8502b480b2c6",
   "counts": {
-    "catalog": 84,
-    "entitled": 53
+    "catalog": 86,
+    "entitled": 54
   },
   "models": [
     {
@@ -204,6 +204,29 @@
       "context": 262000,
       "context_raw": "262K",
       "reasoning_efforts": [],
+      "pricing_raw": "$0/$0 \u00b7 cache $0",
+      "context_source": "models.md",
+      "output": 65536,
+      "output_source": "fallback",
+      "output_ref": "",
+      "min_plan_source": "models.md",
+      "reasoning_efforts_source": "models.md",
+      "vision": null,
+      "vision_source": "unresolved",
+      "metadata_ref": ""
+    },
+    {
+      "id": "inclusionai/ling-3.1-flash:free",
+      "display": "Ling 3.1 Flash",
+      "description": "hybrid-reasoning MoE for coding & tool-using agents",
+      "min_plan": "Go",
+      "context": 262000,
+      "context_raw": "262K",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "pricing_raw": "$0/$0 \u00b7 cache $0",
       "context_source": "models.md",
       "output": 65536,
@@ -1125,5 +1148,5 @@
       "metadata_ref": "zhipuai/glm-5.3.toml"
     }
   ],
-  "fetched_at": "2026-09-29T12:47:20Z"
+  "fetched_at": "2026-09-29T22:12:23Z"
 }
