@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "source": "command-code bundled models.md",
-  "source_cli_version": "1.73.4",
+  "source_cli_version": "1.74.0",
   "source_path": "dist/bundled/command-code-knowledge/reference/models.md",
   "source_sha256": "9b188c087ec2ac960be56a81e40a3a9eb420f37be8bb5c4a56aab68c2a1dbbdc",
-  "source_package_integrity": "sha512-OLLtN2S/p6NMIPiFjfgRbwAfHqXYFClXhvueomQ481ErOEofqfUK2bloC6TyQ8e9zGVdfiXefqKBR8WQKhrkaA==",
-  "models_dev_rev": "dbc891ced2fdbf01591e86345100e972b329b6a6",
+  "source_package_integrity": "sha512-8GGlLBrOOZ6pwGOHUJ7ZxeFV2RYaPVq5SYuBINROdakZUtJQoE4cx8MvetIa0Z/OEXKiNsg6+kquGPYMmaF80w==",
+  "models_dev_rev": "592a849d85d184cad180803a60ecaa0a521f96b9",
   "counts": {
     "catalog": 85,
     "entitled": 53
@@ -1131,5 +1131,5 @@
       "metadata_ref": "zhipuai/glm-5.3.toml"
     }
   ],
-  "fetched_at": "2026-10-01T22:38:35Z"
+  "fetched_at": "2026-10-02T05:31:39Z"
 }
