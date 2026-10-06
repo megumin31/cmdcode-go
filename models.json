@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "source": "command-code bundled models.md",
-  "source_cli_version": "1.74.1",
+  "source_cli_version": "1.74.3",
   "source_path": "dist/bundled/command-code-knowledge/reference/models.md",
-  "source_sha256": "9b188c087ec2ac960be56a81e40a3a9eb420f37be8bb5c4a56aab68c2a1dbbdc",
-  "source_package_integrity": "sha512-AEr4cPm08RQ86xKZTCOIOgf9ohob/L5ugB2ZO8X/iPzOQVk4nxDInRAofKy6/eQTfDlfb49J1y+Nyx3ngXMBFA==",
-  "models_dev_rev": "b1a0f5b29b5dbc6a2023902ee9669050bf93ac4a",
+  "source_sha256": "4e044c6d7d90d1a3e75be4d52b84d0a0bb8bd018a60b2f2a0477a915687e7090",
+  "source_package_integrity": "sha512-K0eLCJtkWDvdR7JegxANKe5CUdsujO7+VtGeH/SLyjTWRnXLPoR5poBKiedgoRdn0NNtEQ/+/tE/3VqjAsmtQA==",
+  "models_dev_rev": "d224ea7875ddb0954d01a812c522db8a0315ae7c",
   "counts": {
-    "catalog": 85,
-    "entitled": 53
+    "catalog": 84,
+    "entitled": 52
   },
   "models": [
     {
@@ -719,30 +719,6 @@
       "metadata_ref": "alibaba/qwen3.8-omni-flash.toml"
     },
     {
-      "id": "stealth/space-bunny-alpha",
-      "display": "Space Bunny Alpha",
-      "description": "stealth model with 1M context",
-      "min_plan": "Go",
-      "context": 1000000,
-      "context_raw": "1M",
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "max"
-      ],
-      "pricing_raw": "$0/$0 \u00b7 cache $0",
-      "context_source": "models.md",
-      "output": 65536,
-      "output_source": "fallback",
-      "output_ref": "",
-      "min_plan_source": "models.md",
-      "reasoning_efforts_source": "models.md",
-      "vision": null,
-      "vision_source": "unresolved",
-      "metadata_ref": ""
-    },
-    {
       "id": "stepfun/Step-3.5-Flash",
       "display": "Step 3.5 Flash",
       "description": "fast sparse-MoE agentic reasoning",
@@ -1131,5 +1107,5 @@
       "metadata_ref": "zhipuai/glm-5.3.toml"
     }
   ],
-  "fetched_at": "2026-10-05T14:30:09Z"
+  "fetched_at": "2026-10-06T00:00:30Z"
 }
