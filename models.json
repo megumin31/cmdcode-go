@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "source": "command-code bundled models.md",
-  "source_cli_version": "1.77.0",
+  "source_cli_version": "1.79.1",
   "source_path": "dist/bundled/command-code-knowledge/reference/models.md",
-  "source_sha256": "a56508844d5c63fc1d6b965905edaed54ad53a742a4b64a4be501aaecd6c28c4",
-  "source_package_integrity": "sha512-AnoZ7and+cO4JPzq+tMDo+moNInM2DH6B1lRDlkTEXb0IerYitbWvYWzXiu3odVcH36F7odBecq+hsU796h8gg==",
-  "models_dev_rev": "450aa1d59261b04afd8a6fe6b6dd621272719bc4",
+  "source_sha256": "3efee587902259162fecad3723798590fd2e12808955752e6cccb93d388a85e5",
+  "source_package_integrity": "sha512-EO/15K8AEvu4K/2i6in+Oe83cFqQzvZ2qvcABtpH6A1F/eDCwtXErMolcxRtllAkiEEd0XM5LFxMvIIhIlYMzg==",
+  "models_dev_rev": "5965293f511d4d0105b20439ae9ed4bf1cd50e0c",
   "counts": {
-    "catalog": 85,
-    "entitled": 53
+    "catalog": 87,
+    "entitled": 54
   },
   "models": [
     {
@@ -742,6 +742,30 @@
       "metadata_ref": "alibaba/qwen3.8-omni-flash.toml"
     },
     {
+      "id": "stealth/glyph-cluster:free",
+      "display": "Glyph Cluster",
+      "description": "stealth reasoning model in early access",
+      "min_plan": "Go",
+      "context": 256000,
+      "context_raw": "256K",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "pricing_raw": "$0/$0 \u00b7 cache $0",
+      "context_source": "models.md",
+      "output": 65536,
+      "output_source": "fallback",
+      "output_ref": "",
+      "min_plan_source": "models.md",
+      "reasoning_efforts_source": "models.md",
+      "vision": null,
+      "vision_source": "unresolved",
+      "metadata_ref": ""
+    },
+    {
       "id": "stepfun/Step-3.5-Flash",
       "display": "Step 3.5 Flash",
       "description": "fast sparse-MoE agentic reasoning",
@@ -1130,5 +1154,5 @@
       "metadata_ref": "zhipuai/glm-5.3.toml"
     }
   ],
-  "fetched_at": "2026-10-07T13:16:15Z"
+  "fetched_at": "2026-10-07T23:02:43Z"
 }
