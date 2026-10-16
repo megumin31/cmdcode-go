@@ -1,4 +1,4 @@
-module cmdcode-go
+module cpa-cmdcode-go
 
 go 1.26.0
 

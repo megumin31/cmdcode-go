@@ -465,9 +465,13 @@ func TestMatchModel(t *testing.T) {
 	}{
 		{"deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-flash", true},
 		{"cmdcode-go/deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-flash", true},
+		{"cpa-cmdcode-go/deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-flash", true},
 		{"cmdcode-go/moonshotai/Kimi-K3", "moonshotai/Kimi-K3", true},
+		{"cpa-cmdcode-go/moonshotai/Kimi-K3", "moonshotai/Kimi-K3", true},
 		{"Kimi-K3", "moonshotai/Kimi-K3", true},
+		{"cmdcode-go/Kimi-K3", "moonshotai/Kimi-K3", true},
 		{"gpt-5.6-luna", "gpt-5.6-luna", true},
+		{"cmdcode-go/gpt-5.6-luna", "gpt-5.6-luna", true},
 		{"__foreign_test_model__", "", false},
 		{"", "", false},
 	}
@@ -552,6 +556,11 @@ func TestModelFiltering(t *testing.T) {
 	if full == 0 {
 		t.Fatal("want builtin roster without filters")
 	}
+	for _, m := range registeredModels() {
+		if !strings.HasPrefix(m.ID, "cmdcode-go/") {
+			t.Fatalf("model %s missing cmdcode-go/ prefix", m.ID)
+		}
+	}
 	// Allowlist via flexible names.
 	setConfig(pluginConfig{Models: []string{"Kimi-K3", "cmdcode-go/deepseek/deepseek-v4-flash"}})
 	got := registeredModels()
@@ -565,7 +574,7 @@ func TestModelFiltering(t *testing.T) {
 	// Denylist wins over the default-all.
 	setConfig(pluginConfig{DisableModels: []string{"gpt-5.6-luna"}})
 	for _, m := range registeredModels() {
-		if m.ID == "gpt-5.6-luna" {
+		if m.ID == "cmdcode-go/gpt-5.6-luna" || m.ID == "gpt-5.6-luna" {
 			t.Fatal("denied model still registered")
 		}
 	}
@@ -803,7 +812,7 @@ func TestRemoteModelsFetchAndCache(t *testing.T) {
 		t.Fatalf("fallback output cap = %d, want 65536", c)
 	}
 	for _, m := range got {
-		if m.ID == "test/remote-small" && m.DisplayName != "test/remote-small" {
+		if m.ID == "cmdcode-go/test/remote-small" && m.DisplayName != "test/remote-small" {
 			t.Fatalf("fallback display = %q, want id", m.DisplayName)
 		}
 	}

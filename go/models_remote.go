@@ -14,7 +14,7 @@ import (
 
 const (
 	modelsSchemaVersion          = 1
-	defaultModelsURL             = "https://raw.githubusercontent.com/megumin31/cmdcode-go/main/models.json"
+	defaultModelsURL             = "https://raw.githubusercontent.com/megumin31/cpa-cmdcode-go/main/models.json"
 	defaultRefreshInterval       = 6 * time.Hour
 	modelsFetchTimeout           = 8 * time.Second
 	modelsMinRetryInterval       = 5 * time.Minute
@@ -205,6 +205,8 @@ func parseModelsFile(raw []byte) ([]modelDef, string, error) {
 	found := false
 	for _, m := range doc.Models {
 		id := strings.TrimSpace(m.ID)
+		id = strings.TrimPrefix(id, "cpa-cmdcode-go/")
+		id = strings.TrimPrefix(id, ProviderKey+"/")
 		short := strings.ToLower(id[strings.LastIndex(id, "/")+1:])
 		if id == "" || strings.ContainsAny(id, " \t\r\n") || seen[strings.ToLower(id)] || shorts[short] {
 			return nil, "", fmt.Errorf("empty, invalid or duplicate model ID/short name: %q", id)

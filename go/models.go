@@ -46,6 +46,7 @@ func newModelSnapshot(defs []modelDef) *modelSnapshot {
 
 func (s *modelSnapshot) Match(name string) (string, bool) {
 	key := strings.ToLower(strings.TrimSpace(name))
+	key = strings.TrimPrefix(key, "cpa-cmdcode-go/")
 	key = strings.TrimPrefix(key, ProviderKey+"/")
 	if i, ok := s.byID[key]; ok {
 		return s.defs[i].id, true
@@ -83,7 +84,10 @@ func (s *modelSnapshot) Resolve(name string) string {
 }
 
 func (s *modelSnapshot) Definition(id string) (modelDef, bool) {
-	i, ok := s.byID[strings.ToLower(id)]
+	key := strings.ToLower(strings.TrimSpace(id))
+	key = strings.TrimPrefix(key, "cpa-cmdcode-go/")
+	key = strings.TrimPrefix(key, ProviderKey+"/")
+	i, ok := s.byID[key]
 	if !ok {
 		return modelDef{}, false
 	}
@@ -108,15 +112,16 @@ func (s *modelSnapshot) Registered(cfg pluginConfig) []pluginapi.ModelInfo {
 		if d.gatewayOutput > 0 {
 			output = d.gatewayOutput
 		}
+		modelID := ProviderKey + "/" + strings.TrimPrefix(strings.TrimPrefix(d.id, "cpa-cmdcode-go/"), ProviderKey+"/")
 		m := pluginapi.ModelInfo{
-			ID: d.id, Object: "model", OwnedBy: ProviderKey, Type: ProviderKey,
-			DisplayName: d.display, Name: d.id, Description: d.description,
+			ID: modelID, Object: "model", OwnedBy: ProviderKey, Type: ProviderKey,
+			DisplayName: d.display, Name: modelID, Description: d.description,
 			ContextLength: d.context, InputTokenLimit: d.context,
 			MaxCompletionTokens: output, OutputTokenLimit: output,
 			SupportedGenerationMethods: []string{"chat"},
 			SupportedInputModalities:   inputs, SupportedOutputModalities: []string{"text"},
-			SupportedParameters: []string{"temperature", "max_tokens", "tools", "stream"},
-			UserDefined:         true,
+			SupportedParameters:        []string{"temperature", "max_tokens", "tools", "stream"},
+			UserDefined:                true,
 		}
 		if len(d.efforts) > 0 {
 			m.Thinking = &pluginapi.ThinkingSupport{Levels: append([]string(nil), d.efforts...)}
@@ -134,7 +139,7 @@ func registration() map[string]any {
 			"Name":             "cmdcode-go",
 			"Version":          "0.1.0",
 			"Author":           "cmdcode-go contributors",
-			"GitHubRepository": "https://github.com/router-for-me/CLIProxyAPI",
+			"GitHubRepository": "https://github.com/megumin31/cpa-cmdcode-go",
 			"Description":      "CommandCode Go ($1/mo) plan via the CLI /alpha/generate gateway. Unofficial.",
 			"ConfigFields": []map[string]any{
 				{"Name": "api_key", "Type": "string", "Description": "CommandCode user_ key. Falls back to COMMANDCODE_KEY env and ~/.commandcode/auth.json."},

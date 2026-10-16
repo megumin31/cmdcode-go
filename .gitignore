@@ -1,10 +1,12 @@
 # Build output
 *.so
+*.h
 *.o
 *.a
 
 # Go
 /cmdcode-go
+/cpa-cmdcode-go
 /dist/
 
 # Test / coverage artifacts
@@ -19,3 +21,8 @@ coverage.html
 *~
 .DS_Store
 /go/cmdcode-go
+/go/cpa-cmdcode-go
+
+# Python
+__pycache__/
+*.pyc
