@@ -2,16 +2,16 @@
   "schema_version": 1,
   "source": "command-code Go plan page",
   "source_url": "https://commandcode.ai/docs/plans/go",
-  "source_sha256": "1dc70496f58fd82d77d468c6a84284dbfcbce113b4df2aa0c05d757bdbb6f76c",
+  "source_sha256": "9ed366bcc0bc363e6a498fe5bd8c09b268234b5c7cebca94b1887abf5ac3f0f4",
   "models_dev_url": "https://models.dev/catalog.json",
-  "models_dev_sha256": "3354cb15bf2ab9ed10d46a80bec582ae0a8c0921711fe18a405d9953bccdb27b",
+  "models_dev_sha256": "b5455c21db193f58b8466cc92ad604ac2032ae03403809bdf50b0f46af18ef10",
   "fallback_profile": {
     "context": 262144,
     "output": 65536
   },
   "counts": {
-    "catalog": 94,
-    "entitled": 56
+    "catalog": 95,
+    "entitled": 57
   },
   "models": [
     {
@@ -61,9 +61,11 @@
       "reasoning_efforts": [],
       "reasoning_efforts_source": "unresolved",
       "metadata_ref": "models/deepseek/deepseek-v4-flash",
-      "metadata_match": "structured_unique",
-      "metadata_match_sources": [],
-      "metadata_match_reason": "deployment_label_difference",
+      "metadata_match": "provider_canonical",
+      "metadata_match_sources": [
+        "providers/commandcode/models/deepseek/deepseek-v4-flash-fast"
+      ],
+      "metadata_match_reason": "",
       "metadata_candidates": []
     },
     {
@@ -199,6 +201,7 @@
       "metadata_ref": "models/deepseek/deepseek-v4.1-flash",
       "metadata_match": "provider_canonical",
       "metadata_match_sources": [
+        "providers/commandcode/models/deepseek/deepseek-v4.1-flash-fast",
         "providers/vercel/models/deepseek/deepseek-v4.1-flash-fast"
       ],
       "metadata_match_reason": "",
@@ -386,6 +389,7 @@
       "metadata_ref": "models/meta/muse-spark-1.2",
       "metadata_match": "provider_canonical",
       "metadata_match_sources": [
+        "providers/commandcode/models/meta/muse-spark-1.2-contributor",
         "providers/llmtr/models/meta/muse-spark-1.2-contributor",
         "providers/meta/models/muse-spark-1.2-contributor"
       ],
@@ -430,6 +434,7 @@
       "metadata_ref": "models/meta/muse-spark-1.3",
       "metadata_match": "provider_canonical",
       "metadata_match_sources": [
+        "providers/commandcode/models/meta/muse-spark-1.3-contributor",
         "providers/meta/models/muse-spark-1.3-contributor"
       ],
       "metadata_match_reason": "",
@@ -1226,6 +1231,32 @@
       "metadata_candidates": []
     },
     {
+      "id": "reflection/beam:free",
+      "display": "Beam 1.0",
+      "description": "",
+      "min_plan": "Go",
+      "min_plan_source": "command-code Go plan page",
+      "context": 262144,
+      "context_source": "fallback",
+      "output": 65536,
+      "output_source": "fallback",
+      "output_ref": "",
+      "vision": null,
+      "vision_source": "unresolved",
+      "reasoning": null,
+      "reasoning_source": "unresolved",
+      "tool_call": null,
+      "tool_call_source": "unresolved",
+      "reasoning_options_reference": null,
+      "reasoning_efforts": [],
+      "reasoning_efforts_source": "unresolved",
+      "metadata_ref": "",
+      "metadata_match": "unresolved",
+      "metadata_match_sources": [],
+      "metadata_match_reason": "no_compatible_structural_candidate",
+      "metadata_candidates": []
+    },
+    {
       "id": "stealth/cat-jam:free",
       "display": "Cat Jam",
       "description": "",
@@ -1429,9 +1460,11 @@
       "reasoning_efforts": [],
       "reasoning_efforts_source": "unresolved",
       "metadata_ref": "models/tencent/hy3",
-      "metadata_match": "structured_unique",
-      "metadata_match_sources": [],
-      "metadata_match_reason": "deployment_label_difference",
+      "metadata_match": "provider_canonical",
+      "metadata_match_sources": [
+        "providers/commandcode/models/tencent/hy3-paid"
+      ],
+      "metadata_match_reason": "",
       "metadata_candidates": []
     },
     {
@@ -1795,6 +1828,7 @@
       "metadata_ref": "models/zhipuai/glm-5.3-flash",
       "metadata_match": "provider_canonical",
       "metadata_match_sources": [
+        "providers/commandcode/models/z-ai/glm-5.3-flashx",
         "providers/ofox/models/z-ai/glm-5.3-flashx",
         "providers/zenmux/models/z-ai/glm-5.3-flashx",
         "providers/zhipuai/models/glm-5.3-flashx"
@@ -1944,6 +1978,7 @@
       "metadata_match": "provider_canonical",
       "metadata_match_sources": [
         "providers/baseten/models/zai-org/GLM-5.2-Fast",
+        "providers/commandcode/models/zai-org/GLM-5.2-Fast",
         "providers/pioneer/models/zai-org/GLM-5.2-Fast"
       ],
       "metadata_match_reason": "",
@@ -1989,5 +2024,5 @@
       "metadata_candidates": []
     }
   ],
-  "fetched_at": "2026-10-16T16:34:55Z"
+  "fetched_at": "2026-10-16T21:03:14Z"
 }
