@@ -1,25 +1,56 @@
-# cpa-cmdcode-go
+<div align="right">
+  <strong>English</strong> | <a href="README_zh.md">简体中文</a>
+</div>
 
-English | [中文](README.zh-CN.md)
+# Command Code Go Plugin for CLIProxyAPI (CPA)
 
-A [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin for Command Code Go ($1/mo plan).
+A high-performance C-shared plugin for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) (CPA) that integrates the Command Code Go ($1/mo plan) LLM ecosystem into standard OpenAI-compatible endpoints without requiring the Command Code CLI to run in the background.
 
-Access all Command Code Go models through standard OpenAI-compatible endpoints via CLIProxyAPI, without running the Command Code CLI in the background.
+---
 
 ## Features
 
-- **Full Capability**: Streaming (SSE), non-streaming completions, tool calls (function calling), reasoning content / thinking tokens, and multimodal image input.
-- **Namespaced Model IDs**: Models are registered as `cmdcode-go/<model_id>` (e.g. `cmdcode-go/deepseek/deepseek-v4-flash`, `cmdcode-go/moonshotai/Kimi-K3`) to avoid naming collisions with other providers.
-- **Zero-Config Credentials**: Supports explicit `api_key`, `COMMANDCODE_KEY` environment variables, or automatically reading your local CLI login state (`~/.commandcode/auth.json` from `cmd login`).
-- **Dynamic Model Roster**: Includes a compiled-in model list and automatically refreshes from GitHub to stay up to date with new models.
+- **Full Capability & Parity**: Comprehensive support for streaming (SSE), non-streaming completions, tool calls (function calling), reasoning content / thinking tokens, and multimodal image input.
+- **Isolated Namespaced Models**: Models are registered as `cmdcode-go/<model_id>` (e.g., `cmdcode-go/deepseek/deepseek-v4-flash`, `cmdcode-go/moonshotai/Kimi-K3`) with backward-compatible short alias routing to prevent naming collisions with other providers.
+- **Zero-Config Credential Detection**: Supports explicit `api_key` in CPA configuration, `COMMANDCODE_KEY` environment variable, or automatic discovery of local CLI login state (`~/.commandcode/auth.json` from `cmd login`).
+- **Dynamic Model Catalog & Auto-Sync**: Bundles a compiled-in model fallback and automatically synchronizes with remote catalog updates (tracked via GitHub Actions), with optional local JSON file overrides.
+- **Resilient Streaming Architecture**: Built on a bounded NDJSON state machine and safe host callback lifecycle, ensuring graceful shutdown without leaked connections or memory corruption.
 
-## Quick Start
+---
 
-### 1. Download or build
+## Featured Available Models
 
-[Published releases](https://github.com/megumin31/cpa-cmdcode-go/releases) provide native Linux `amd64` and `arm64` archives after both architectures pass CI. Verify their checksums and completion manifest, then install the inner `cmdcode-go-v0.1.0.so` without renaming it. See [release instructions](docs/RELEASE.md).
+The plugin discovers and routes all Command Code Go entitled models. Call them using the `cmdcode-go/<model_id>` namespace or their short aliases:
 
-To build locally:
+| Model | CPA Model ID | Context | Capabilities & Notes |
+| :--- | :--- | :--- | :--- |
+| **DeepSeek V4 Flash** | `cmdcode-go/deepseek/deepseek-v4-flash` | 1M | Fast hybrid-attention reasoning, thinking tokens |
+| **DeepSeek V4 Flash Fast** | `cmdcode-go/deepseek/deepseek-v4-flash-fast` | 1M | Ultra-low latency inference |
+| **Kimi K3** | `cmdcode-go/moonshotai/Kimi-K3` | 200K | High-throughput reasoning & agentic tasks |
+| **GPT-4o** | `cmdcode-go/openai/gpt-4o` | 128K | Advanced multimodal reasoning & vision |
+| **Claude 3.5 Sonnet** | `cmdcode-go/anthropic/claude-3.5-sonnet` | 200K | Complex coding & nuanced analysis |
+| **Gemini 2.5 Flash** | `cmdcode-go/google/gemini-2.5-flash` | 1M | Long-context multimodal understanding |
+
+> See [models.json](models.json) for the complete catalog of 50+ entitled models.
+
+---
+
+## Installation & Deployment
+
+### 1. Download Pre-built Binary
+
+Published [Releases](https://github.com/megumin31/cpa-cmdcode-go/releases) provide native Linux `amd64` and `arm64` archives after passing the native quality gate. Download the archive for your architecture, verify its checksum, and install `cmdcode-go-v0.1.0.so` into your CPA `plugins/` directory:
+
+```bash
+cp cmdcode-go-v0.1.0.so /path/to/cliproxyapi/plugins/
+chmod 700 /path/to/cliproxyapi/plugins/cmdcode-go-v0.1.0.so
+```
+
+> **Note**: Do not rename the `.so` file, as CPA requires the versioned library name. See [release instructions](docs/RELEASE.md) for details.
+
+### 2. Build from Source
+
+Requires Go 1.22+ and a C compiler (GCC or Clang):
 
 ```bash
 git clone https://github.com/megumin31/cpa-cmdcode-go.git
@@ -27,67 +58,131 @@ cd cpa-cmdcode-go
 mkdir -p build
 LIBRARY="$(cd go && go run ./cmd/buildmeta --field filename)"
 (cd go && CGO_ENABLED=1 go build -buildmode=c-shared -o "../build/$LIBRARY" .)
+cp "build/$LIBRARY" /path/to/cliproxyapi/plugins/
+chmod 700 "/path/to/cliproxyapi/plugins/$LIBRARY"
 ```
 
-Copy the generated `build/cmdcode-go-v0.1.0.so` to your CLIProxyAPI plugins directory.
+### 3. Configure CPA
 
-### 2. Configure CLIProxyAPI
-
-Add the plugin configuration to CLIProxyAPI's `config.yaml`:
+In your CPA `config.yaml`:
 
 ```yaml
 plugins:
-  dir: "/path/to/plugins"
+  enabled: true
+  dir: "plugins"
   configs:
     cmdcode-go:
       enabled: true
       priority: 1
-      api_key: "YOUR_COMMAND_CODE_KEY" # Optional if you have already logged in via `cmd login`
+      api_key: "YOUR_COMMAND_CODE_KEY" # Optional if logged in via `cmd login`
 ```
 
-Start or restart CLIProxyAPI.
+### 4. Restart & Verify CPA
 
-### 3. Usage
-
-Point your OpenAI-compatible client to your CLIProxyAPI instance.
-
-List available models:
 ```bash
-curl -s http://127.0.0.1:8317/v1/models \
-  -H "Authorization: Bearer YOUR_CLIPROXY_KEY"
+systemctl --user restart cliproxyapi
+# or restart your CPA binary directly
 ```
 
-Chat completions:
+Verify that models are registered:
 ```bash
-curl -N http://127.0.0.1:8317/v1/chat/completions \
-  -H "Authorization: Bearer YOUR_CLIPROXY_KEY" \
+curl -s http://localhost:8317/v1/models -H "Authorization: Bearer <your-cpa-api-key>" | jq '.data[].id'
+```
+
+---
+
+## Configuration Options
+
+Supported options under `plugins.configs.cmdcode-go`:
+
+| Option | Type | Description | Default |
+| :--- | :--- | :--- | :--- |
+| `api_key` | string | Command Code account key (`user_...`) | Reads env vars / CLI auth file if omitted |
+| `models` | list | Allowlist of models to expose | All models |
+| `disable_models` | list | Denylist of models to exclude | None |
+| `models_refresh_interval` | string | Interval to check for remote catalog updates | `"6h"` (`"0"` to use compiled-in roster only) |
+| `models_file` | string | Path to a local model catalog JSON file | Unset (overrides remote URL if set) |
+| `models_url` | string | URL to fetch model catalog JSON from | `models.json` on `main` branch |
+
+---
+
+## Usage Examples
+
+### 1. Chat Completions (`/v1/chat/completions`)
+
+```bash
+curl -N http://localhost:8317/v1/chat/completions \
+  -H "Authorization: Bearer <your-cpa-api-key>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "cmdcode-go/deepseek/deepseek-v4-flash",
-    "messages": [{"role": "user", "content": "Hello"}],
+    "messages": [{"role": "user", "content": "Write a quicksort in Go."}],
     "stream": true
   }'
 ```
 
-> **Note**: Requests can use either the full ID (`cmdcode-go/<model_id>`, recommended) or short names (e.g. `Kimi-K3`, `deepseek/deepseek-v4-flash`). See [models.json](models.json) for the full model catalog.
+### 2. Tool Calling (Function Calling)
 
-## Configuration Options
+Downstream client tools are fully parsed, mapped, and forwarded upstream:
 
-Fields under `plugins.configs.cmdcode-go`:
+```bash
+curl http://localhost:8317/v1/chat/completions \
+  -H "Authorization: Bearer <your-cpa-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "cmdcode-go/moonshotai/Kimi-K3",
+    "messages": [{"role": "user", "content": "What is 123 * 456?"}],
+    "tools": [{
+      "type": "function",
+      "function": {
+        "name": "multiply",
+        "description": "Multiplies two numbers",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "a": {"type": "number"},
+            "b": {"type": "number"}
+          },
+          "required": ["a", "b"]
+        }
+      }
+    }],
+    "tool_choice": "auto"
+  }'
+```
 
-| Option | Description | Default |
-|---|---|---|
-| `api_key` | Command Code account key (`user_...`) | Reads env vars / CLI auth file if omitted |
-| `models` | Allowlist of models to enable | All models |
-| `disable_models` | Denylist of models to exclude | None |
-| `models_refresh_interval` | Interval to check for remote roster updates | `"6h"` (`"0"` to use compiled-in roster only) |
-| `models_file` | Path to a local model catalog JSON file | Unset |
-| `models_url` | URL to fetch model catalog JSON from | `models.json` on `main` branch |
+### 3. Reasoning & Thinking Tokens
 
-## Development and CI
+For reasoning models (such as DeepSeek and Kimi), thinking output is emitted as `reasoning_content` deltas in streaming mode:
 
-Every branch push and pull request runs the same native Linux amd64/arm64 quality gate used by release builds: formatting, vet, tests, race detector, Python fixtures, workflow lint, C-shared build and the C ABI reload harness. Tests use local fakes and do not call live inference. See [local commands and CI artifacts](docs/CI.md) and [release retry rules](docs/RELEASE.md).
+```bash
+curl -N http://localhost:8317/v1/chat/completions \
+  -H "Authorization: Bearer <your-cpa-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "cmdcode-go/deepseek/deepseek-v4-flash",
+    "messages": [{"role": "user", "content": "Solve: if x^2 + 5x + 6 = 0, what is x?"}],
+    "stream": true
+  }'
+```
+
+---
+
+## Architecture & CI Verification
+
+The repository maintains strict ownership boundaries across core components:
+
+- **C ABI Adapter (`go/main.go`, `go/abi_runtime.go`)**: Owns C memory allocations, host callback bridges, safe instance reloads across `dlclose`, and exported plugin ABI symbols (`cliproxy_plugin_init`, `cliproxyPluginCall`, `cliproxyPluginFree`, `cliproxyPluginShutdown`).
+- **Plugin Engine (`go/plugin.go`, `go/dispatch.go`, `go/executor.go`)**: Composition root managing RPC dispatch, task registration, coherent turn snapshots, and graceful shutdown.
+- **ConfigStore (`go/config.go`)**: Thread-safe YAML decoding, validation, atomic updates, and defensive copies.
+- **ModelRegistry (`go/models_remote.go`, `go/models.go`)**: Immutable model indexes with single-flight background refresh and compiled-in fallback.
+- **GatewayClient (`go/gateway_client.go`)**: Reusable HTTP transport, authentication headers, timeouts, and connection pool management.
+- **EventDecoder (`go/event_decoder.go`)**: Bounded NDJSON event parser shared between streaming and buffered responses.
+
+Every branch push and pull request runs the native Linux amd64/arm64 quality gate: formatting, vet, unit tests, race detector, Python fixtures, workflow validation, and the C ABI reload harness. See [ARCHITECTURE.md](ARCHITECTURE.md) and [CI documentation](docs/CI.md).
+
+---
 
 ## License
 
-This project is licensed under the [AGPL-3.0](LICENSE) License.
+[AGPL-3.0](LICENSE)
