@@ -26,3 +26,6 @@ coverage.html
 # Python
 __pycache__/
 *.pyc
+
+# Local CI and packaged release outputs
+/build/

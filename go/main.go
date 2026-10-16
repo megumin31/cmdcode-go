@@ -65,12 +65,16 @@ import (
 
 func main() {}
 
+var abiRuntime pluginRuntime
+
 //export cliproxy_plugin_init
 func cliproxy_plugin_init(host *C.cliproxy_host_api, plugin *C.cliproxy_plugin_api) C.int {
 	if plugin == nil || host == nil || host.abi_version != C.uint32_t(pluginabi.ABIVersion) {
 		return 1
 	}
-	C.store_host_api(host)
+	if !abiRuntime.Initialize(func() { C.store_host_api(host) }) {
+		return 1
+	}
 	plugin.abi_version = C.uint32_t(pluginabi.ABIVersion)
 	plugin.call = C.cliproxy_plugin_call_fn(C.cliproxyPluginCall)
 	plugin.free_buffer = C.cliproxy_plugin_free_fn(C.cliproxyPluginFree)
@@ -93,7 +97,7 @@ func cliproxyPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t,
 		return 1
 	}
 	raw := decodeRequest(request, requestLen)
-	out, errHandle := defaultPlugin.Handle(C.GoString(method), raw)
+	out, errHandle := abiRuntime.Handle(C.GoString(method), raw)
 	if errHandle != nil {
 		writeResponse(response, errorEnvelope("plugin_error", errHandle.Error()))
 		return 1
@@ -112,8 +116,7 @@ func cliproxyPluginFree(ptr unsafe.Pointer, len C.size_t) {
 
 //export cliproxyPluginShutdown
 func cliproxyPluginShutdown() {
-	defaultPlugin.Shutdown()
-	C.store_host_api(nil)
+	abiRuntime.Shutdown(func() { C.store_host_api(nil) })
 }
 
 func decodeRequest(request *C.uint8_t, requestLen C.size_t) []byte {

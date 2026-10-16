@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"strings"
+
+	"cpa-cmdcode-go/internal/buildinfo"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
-	"strings"
 )
 
 type modelDef struct {
@@ -44,10 +47,32 @@ func newModelSnapshot(defs []modelDef) *modelSnapshot {
 	return s
 }
 
+type modelSelection struct {
+	base   string
+	suffix *string
+}
+
+// parseModelName follows CPA's terminal model(value) syntax. Namespace and
+// suffix handling is shared by lookup, routing, filtering and execution.
+func parseModelName(name string) modelSelection {
+	name = strings.TrimSpace(name)
+	selection := modelSelection{base: name}
+	if at := strings.LastIndex(name, "("); at >= 0 && strings.HasSuffix(name, ")") {
+		value := strings.ToLower(strings.TrimSpace(name[at+1 : len(name)-1]))
+		selection.base = strings.TrimSpace(name[:at])
+		selection.suffix = &value
+	}
+	for _, prefix := range []string{"cpa-cmdcode-go/", ProviderKey + "/"} {
+		if strings.HasPrefix(strings.ToLower(selection.base), prefix) {
+			selection.base = selection.base[len(prefix):]
+			break
+		}
+	}
+	return selection
+}
+
 func (s *modelSnapshot) Match(name string) (string, bool) {
-	key := strings.ToLower(strings.TrimSpace(name))
-	key = strings.TrimPrefix(key, "cpa-cmdcode-go/")
-	key = strings.TrimPrefix(key, ProviderKey+"/")
+	key := strings.ToLower(parseModelName(name).base)
 	if i, ok := s.byID[key]; ok {
 		return s.defs[i].id, true
 	}
@@ -80,18 +105,60 @@ func (s *modelSnapshot) Resolve(name string) string {
 	if id, ok := s.Match(name); ok {
 		return id
 	}
-	return strings.TrimSpace(name)
+	return parseModelName(name).base
 }
 
 func (s *modelSnapshot) Definition(id string) (modelDef, bool) {
-	key := strings.ToLower(strings.TrimSpace(id))
-	key = strings.TrimPrefix(key, "cpa-cmdcode-go/")
-	key = strings.TrimPrefix(key, ProviderKey+"/")
+	key := strings.ToLower(parseModelName(id).base)
 	i, ok := s.byID[key]
 	if !ok {
 		return modelDef{}, false
 	}
 	return s.defs[i], true
+}
+
+func gatewayEffort(level string) bool {
+	switch level {
+	case "low", "medium", "high", "xhigh", "max":
+		return true
+	}
+	return false
+}
+
+func supportedEfforts(d modelDef) []string {
+	var levels []string
+	for _, level := range d.efforts {
+		if gatewayEffort(level) {
+			levels = append(levels, level)
+		}
+	}
+	return levels
+}
+
+func (s *modelSnapshot) reasoningEffort(selection modelSelection, body *string) (*string, error) {
+	requested := body
+	if selection.suffix != nil {
+		requested = selection.suffix // CPA gives an explicit suffix precedence.
+	}
+	if requested == nil {
+		return nil, nil
+	}
+	level := strings.ToLower(strings.TrimSpace(*requested))
+	// Automatic/default mode means leave selection to the gateway. An empty
+	// suffix is a malformed instruction, rather than an accidental default.
+	if level == "auto" || level == "default" || level == "-1" || (level == "" && selection.suffix == nil) {
+		return nil, nil
+	}
+	if gatewayEffort(level) {
+		if d, ok := s.Definition(selection.base); ok {
+			for _, supported := range supportedEfforts(d) {
+				if level == supported {
+					return &level, nil
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("cmdcode-go: reasoning effort %q is unsupported for model %q", level, selection.base)
 }
 
 func (s *modelSnapshot) Registered(cfg pluginConfig) []pluginapi.ModelInfo {
@@ -120,11 +187,11 @@ func (s *modelSnapshot) Registered(cfg pluginConfig) []pluginapi.ModelInfo {
 			MaxCompletionTokens: output, OutputTokenLimit: output,
 			SupportedGenerationMethods: []string{"chat"},
 			SupportedInputModalities:   inputs, SupportedOutputModalities: []string{"text"},
-			SupportedParameters:        []string{"temperature", "max_tokens", "tools", "stream"},
-			UserDefined:                true,
+			SupportedParameters: []string{"temperature", "max_tokens", "tools", "stream"},
+			UserDefined:         true,
 		}
-		if len(d.efforts) > 0 {
-			m.Thinking = &pluginapi.ThinkingSupport{Levels: append([]string(nil), d.efforts...)}
+		if levels := supportedEfforts(d); len(levels) > 0 {
+			m.Thinking = &pluginapi.ThinkingSupport{Levels: levels}
 			m.SupportedParameters = append(m.SupportedParameters, "reasoning_effort")
 		}
 		result = append(result, m)
@@ -136,8 +203,8 @@ func registration() map[string]any {
 	return map[string]any{
 		"schema_version": pluginabi.SchemaVersion,
 		"metadata": map[string]any{
-			"Name":             "cmdcode-go",
-			"Version":          "0.1.0",
+			"Name":             buildinfo.Provider,
+			"Version":          buildinfo.Version,
 			"Author":           "cmdcode-go contributors",
 			"GitHubRepository": "https://github.com/megumin31/cpa-cmdcode-go",
 			"Description":      "CommandCode Go ($1/mo) plan via the CLI /alpha/generate gateway. Unofficial.",
@@ -161,6 +228,7 @@ func registration() map[string]any {
 			"executor_input_formats":     []string{"chat-completions"},
 			"executor_output_formats":    []string{"chat-completions"},
 			"response_before_translator": true,
+			"response_after_translator":  true,
 		},
 	}
 }

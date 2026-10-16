@@ -13,10 +13,11 @@ import (
 	"sync"
 	"time"
 
+	"cpa-cmdcode-go/internal/buildinfo"
 	"gopkg.in/yaml.v3"
 )
 
-const ProviderKey = "cmdcode-go"
+const ProviderKey = buildinfo.Provider
 
 type pluginConfig struct {
 	APIKey                string   `yaml:"api_key"`

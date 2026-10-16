@@ -45,6 +45,8 @@ func (p *Plugin) Handle(method string, request []byte) ([]byte, error) {
 		return countTokens(request)
 	case pluginabi.MethodResponseNormalizeBefore:
 		return normalizeBefore(request)
+	case pluginabi.MethodResponseNormalizeAfter:
+		return normalizeAfter(request)
 	case pluginabi.MethodExecutorHTTPRequest:
 		return okEnvelope(pluginapi.ExecutorHTTPResponse{
 			StatusCode: http.StatusNotImplemented,
@@ -63,6 +65,11 @@ func (p *Plugin) routeModel(request []byte) pluginapi.ModelRouteResponse {
 	}
 	snap := p.snapshot()
 	if canonical, ok := snap.models.Match(req.RequestedModel); ok && snap.models.Allowed(canonical, snap.config) {
+		selection := parseModelName(req.RequestedModel)
+		selection.base = canonical
+		if _, err := snap.models.reasoningEffort(selection, nil); err != nil {
+			return pluginapi.ModelRouteResponse{Handled: false}
+		}
 		return pluginapi.ModelRouteResponse{Handled: true, TargetKind: pluginapi.ModelRouteTargetSelf, Reason: "cmdcode-go model"}
 	}
 	return pluginapi.ModelRouteResponse{Handled: false}

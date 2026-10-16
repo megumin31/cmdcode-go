@@ -242,7 +242,7 @@ func TestPreparedTurnUsesOneConfigSnapshot(t *testing.T) {
 	if err := p.Configure(configRequest("api_key: first\nbase_url: " + srv.URL + "\ncli_version: old\n")); err != nil {
 		t.Fatal(err)
 	}
-	prep, raw, err := p.prepareTurn(pluginapi.ExecutorRequest{Model: "test/m", Payload: []byte(`{"messages":[]}`)})
+	prep, raw, err := p.prepareTurn(pluginapi.ExecutorRequest{Model: "deepseek/deepseek-v4-flash", Payload: []byte(`{"messages":[]}`)})
 	if raw != nil || err != nil {
 		t.Fatal(string(raw), err)
 	}

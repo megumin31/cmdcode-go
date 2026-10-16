@@ -1,0 +1,72 @@
+name: Build Linux plugins
+
+'on':
+  push:
+    branches: ['**']
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# No tag-push release path: publishing a release is the sole upload trigger.
+# Separate event groups prevent a push from cancelling a release build.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
+
+jobs:
+  quality:
+    uses: ./.github/workflows/quality-gate.yml
+    permissions:
+      contents: read
+
+  publish:
+    name: Attach verified release assets
+    if: ${{ github.event_name == 'release' && github.event.action == 'published' }}
+    needs: quality
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out exact triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download verified amd64 build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: cmdcode-go-linux-amd64-${{ github.sha }}
+          path: build/release-input/amd64
+
+      - name: Download verified arm64 build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: cmdcode-go-linux-arm64-${{ github.sha }}
+          path: build/release-input/arm64
+
+      - name: Verify both builds and prepare architecture archives
+        id: prepare
+        run: |
+          manifest="$(python3 scripts/release_assets.py prepare \
+            --event "$GITHUB_EVENT_PATH" --sha "$GITHUB_SHA" \
+            --repository "$GITHUB_REPOSITORY" \
+            --inputs build/release-input --output build/release-assets)"
+          printf 'manifest=%s\n' "$manifest" >> "$GITHUB_OUTPUT"
+
+      - name: Attach and verify the complete asset set
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_MANIFEST: ${{ steps.prepare.outputs.manifest }}
+        run: |
+          python3 scripts/release_assets.py publish \
+            --event "$GITHUB_EVENT_PATH" --sha "$GITHUB_SHA" \
+            --repository "$GITHUB_REPOSITORY" --manifest "$RELEASE_MANIFEST"

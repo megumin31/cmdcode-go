@@ -21,10 +21,11 @@
 git clone https://github.com/megumin31/cpa-cmdcode-go.git
 cd cpa-cmdcode-go
 mkdir -p build
-(cd go && CGO_ENABLED=1 go build -buildmode=c-shared -o ../build/cpa-cmdcode-go.so .)
+LIBRARY="$(cd go && go run ./cmd/buildmeta --field filename)"
+(cd go && CGO_ENABLED=1 go build -buildmode=c-shared -o "../build/$LIBRARY" .)
 ```
 
-编译生成 `build/cpa-cmdcode-go.so`，将其拷贝到 CLIProxyAPI 的 plugins 目录即可。
+编译生成 `build/cmdcode-go-v0.1.0.so`，将其拷贝到 CLIProxyAPI 的 plugins 目录即可。
 
 ### 2. 配置 CLIProxyAPI
 
@@ -78,6 +79,12 @@ curl -N http://127.0.0.1:8317/v1/chat/completions \
 | `models_refresh_interval` | 远程模型列表刷新间隔 | `"6h"`（设为 `"0"` 则仅使用内置编译清单） |
 | `models_file` | 本地模型清单文件路径 | 无（设置后优先于远程 URL） |
 | `models_url` | 远程模型清单 JSON 地址 | 本仓库 `main` 分支的 `models.json` |
+
+## 开发、CI 与发布
+
+分支 push 和 pull request 会执行与 Release 相同的 Linux amd64/arm64 原生质量检查，包括格式、vet、单元测试、race、Python fixtures、工作流检查、C-shared 构建与 C ABI 重载测试。测试仅使用 fake 或本地服务，不调用真实推理。
+
+[Release](https://github.com/megumin31/cpa-cmdcode-go/releases) 发布后，两种架构均通过检查才会上传压缩包、校验和与完成清单；稳定版和预发布版均支持。安装时保留压缩包内的 `cmdcode-go-v0.1.0.so` 文件名。详见 [CI 与本地验证](docs/CI.md) 和 [发布与重试说明](docs/RELEASE.md)。
 
 ## 开源协议
 

@@ -38,15 +38,30 @@ func (p *Plugin) prepareTurn(req pluginapi.ExecutorRequest) (turnPrep, []byte, e
 	if key == "" {
 		return turnPrep{}, errorEnvelope("missing_api_key", "cmdcode-go: no API key configured"), nil
 	}
-	upstream := snap.models.Resolve(req.Model)
-	if upstream == "" {
-		return turnPrep{}, errorEnvelope("missing_model", "cmdcode-go: empty model"), nil
+	selection := parseModelName(req.Model)
+	if selection.base == "" {
+		return turnPrep{}, requestErrorEnvelope("missing_model", "cmdcode-go: empty model"), nil
 	}
-	if _, known := snap.models.Match(req.Model); known && !snap.models.Allowed(upstream, snap.config) {
-		return turnPrep{}, errorEnvelope("model_disabled", "cmdcode-go: model excluded by configuration"), nil
+	upstream, known := snap.models.Match(req.Model)
+	if !known {
+		return turnPrep{}, requestErrorEnvelope("unknown_model", "cmdcode-go: model is not in the current catalog"), nil
 	}
-	envelope, err := buildEnvelopeWithSnapshot(upstream, req.Payload, snap)
-	return turnPrep{key: key, envelope: envelope, config: snap.config}, nil, err
+	if !snap.models.Allowed(upstream, snap.config) {
+		return turnPrep{}, requestErrorEnvelope("model_disabled", "cmdcode-go: model excluded by configuration"), nil
+	}
+	// Keep the suffix until envelope conversion, where it overrides body effort.
+	envelope, err := buildEnvelopeWithSnapshot(req.Model, req.Payload, snap)
+	if err != nil {
+		return turnPrep{}, requestErrorEnvelope("invalid_request", err.Error()), nil
+	}
+	return turnPrep{key: key, envelope: envelope, config: snap.config}, nil, nil
+}
+
+func requestErrorEnvelope(code, message string) []byte {
+	raw, _ := json.Marshal(pluginabi.Envelope{OK: false, Error: &pluginabi.Error{
+		Code: code, Message: message, HTTPStatus: http.StatusBadRequest,
+	}})
+	return raw
 }
 
 // upstreamErrorEnvelope maps gateway failures to host-native errors. The
@@ -167,8 +182,13 @@ func (p *Plugin) executeStream(ctx context.Context, request []byte) ([]byte, err
 	return okEnvelope(map[string]any{"headers": map[string][]string{"content-type": {"text/event-stream"}}, "chunks": []pluginapi.ExecutorStreamChunk{}})
 }
 
-// countTokens answers host token-count probes with a cheap heuristic. The
-// gateway exposes no counting endpoint; callers only use this for budgeting.
+const countResponseID = "cmdcode-go-count-tokens-v1"
+
+// countTokens returns an estimate, not a tokenizer result. The pinned host
+// sends count results through its normal completion translator, not its token
+// count translator, and loses the original format before this RPC. The marker
+// and prompt usage survive OpenAI -> Claude conversion; normalizeAfter then
+// restores Claude's count-only response. Same-format callers use input_tokens.
 func countTokens(request []byte) ([]byte, error) {
 	req, _, err := decodeExecutorRequest(request)
 	if err != nil {
@@ -182,7 +202,18 @@ func countTokens(request []byte) ([]byte, error) {
 	if estimate < 0 {
 		estimate = 0
 	}
-	return okEnvelope(map[string]any{"total_tokens": estimate})
+	payload, err = json.Marshal(map[string]any{
+		"id": countResponseID, "input_tokens": estimate,
+		"usage": map[string]int{"prompt_tokens": estimate},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return okEnvelope(pluginapi.ExecutorResponse{
+		Payload:  payload,
+		Headers:  http.Header{"Content-Type": {"application/json"}, "X-Cmdcode-Token-Count": {"estimate"}},
+		Metadata: map[string]any{"token_count_estimated": true},
+	})
 }
 
 func sampleBody(body []byte) string {

@@ -238,44 +238,41 @@ func TestParseStreamReasoningAndChunks(t *testing.T) {
 }
 
 func TestNormalizeSchema(t *testing.T) {
-	for _, raw := range []string{``, `null`, `[]`, `42`, `"str"`, `{bad`} {
-		if got := string(normalizeSchema(json.RawMessage(raw))); got != `{"type":"object","properties":{}}` {
-			t.Errorf("schema %q -> %q, want type-object empty schema", raw, got)
+	for _, raw := range []string{``, `null`} {
+		got, err := normalizeSchema(json.RawMessage(raw))
+		if err != nil || string(got) != `{"type":"object","properties":{}}` {
+			t.Fatalf("no-arg schema %q: %s %v", raw, got, err)
+		}
+	}
+	for _, raw := range []string{`[]`, `42`, `"str"`, `{bad`, `{"type":"array"}`, `{"type":null}`} {
+		if _, err := normalizeSchema(json.RawMessage(raw)); err == nil {
+			t.Errorf("accepted invalid schema %q", raw)
 		}
 	}
 	obj := `{"type":"object","properties":{"a":{"type":"string"}}}`
-	if got := string(normalizeSchema(json.RawMessage(obj))); got != obj {
-		t.Errorf("valid schema rewritten: %q", got)
+	if got, err := normalizeSchema(json.RawMessage(obj)); err != nil || string(got) != obj {
+		t.Errorf("valid schema: %s %v", got, err)
 	}
-	// Typeless records gain type:"object": the gateway rejects them outright
-	// ("got 'type: null'"), which used to break no-arg tool calls.
 	bare := `{"properties":{"a":{"type":"string"}}}`
+	raw, err := normalizeSchema(json.RawMessage(bare))
+	if err != nil {
+		t.Fatal(err)
+	}
 	var gotBare map[string]any
-	if err := json.Unmarshal(normalizeSchema(json.RawMessage(bare)), &gotBare); err != nil {
-		t.Fatalf("typeless schema not JSON: %v", err)
+	if err := json.Unmarshal(raw, &gotBare); err != nil {
+		t.Fatal(err)
 	}
 	if gotBare["type"] != "object" {
-		t.Errorf("typeless schema type = %v, want object", gotBare["type"])
+		t.Errorf("typeless schema type = %v", gotBare["type"])
 	}
 	if props, _ := json.Marshal(gotBare["properties"]); string(props) != `{"a":{"type":"string"}}` {
-		t.Errorf("typeless schema properties rewritten: %s", props)
+		t.Errorf("properties rewritten: %s", props)
 	}
-	wrapped := `"{\"type\":\"object\"}"`
-	if got := string(normalizeSchema(json.RawMessage(wrapped))); got != `{"type":"object"}` {
-		t.Errorf("wrapped schema -> %q", got)
-	}
-	// End to end: explicit null parameters (no-arg tools) reach the wire
-	// as an object-typed record, never null or typeless.
-	env := mustEnvelope(t, `{"model":"m","messages":[{"role":"user","content":"hi"}],
-		"tools":[{"type":"function","function":{"name":"t","parameters":null}}]}`)
+	env := mustEnvelope(t, `{"model":"m","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"t","parameters":null}}]}`)
 	tool := paramsOf(t, env)["tools"].([]any)[0].(map[string]any)
-	schema, _ := json.Marshal(tool["input_schema"])
-	var wire map[string]any
-	if err := json.Unmarshal(schema, &wire); err != nil {
-		t.Fatalf("input_schema not JSON: %s", schema)
-	}
+	wire := tool["input_schema"].(map[string]any)
 	if wire["type"] != "object" {
-		t.Fatalf("input_schema = %s, want type object", schema)
+		t.Fatalf("input_schema = %v", wire)
 	}
 }
 
@@ -300,32 +297,29 @@ func TestToolChoiceNoneStripsTools(t *testing.T) {
 }
 
 func TestNormalizeReasoningEffort(t *testing.T) {
-	str := func(s string) *string { return &s }
+	s := newModelSnapshot([]modelDef{{id: "test/model", efforts: []string{"low", "medium", "high", "xhigh", "max", "off"}}})
 	for _, level := range []string{"low", "medium", "high", "xhigh", "max", "  High  "} {
-		got := normalizeReasoningEffort(str(level))
-		if got == nil || *got != strings.ToLower(strings.TrimSpace(level)) {
-			t.Errorf("level %q -> %v", level, got)
+		got, err := s.reasoningEffort(parseModelName("test/model"), &level)
+		if err != nil || got == nil || *got != strings.ToLower(strings.TrimSpace(level)) {
+			t.Errorf("level %q: %v %v", level, got, err)
 		}
 	}
-	if got := normalizeReasoningEffort(str("minimal")); got == nil || *got != "low" {
-		t.Errorf("minimal -> %v, want low", got)
-	}
-	for _, drop := range []string{"none", "auto", "default", "", "ultra"} {
-		if got := normalizeReasoningEffort(str(drop)); got != nil {
-			t.Errorf("level %q -> %q, want omitted", drop, *got)
+	for _, invalid := range []string{"minimal", "none", "off", "ultra", "8192"} {
+		if _, err := s.reasoningEffort(parseModelName("test/model"), &invalid); err == nil {
+			t.Errorf("silently changed effort %q", invalid)
 		}
 	}
-	if normalizeReasoningEffort(nil) != nil {
-		t.Error("nil -> non-nil")
+	for _, defaultLevel := range []string{"auto", "default", "-1", ""} {
+		if got, err := s.reasoningEffort(parseModelName("test/model"), &defaultLevel); err != nil || got != nil {
+			t.Errorf("default effort: %v %v", got, err)
+		}
 	}
-	// End to end: illegal levels never reach the wire envelope.
-	env := mustEnvelope(t, `{"model":"m","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"none"}`)
-	if _, ok := paramsOf(t, env)["reasoning_effort"]; ok {
-		t.Fatalf("reasoning_effort leaked: %v", env)
-	}
-	env = mustEnvelope(t, `{"model":"m","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"HIGH"}`)
+	env := mustEnvelope(t, `{"model":"m","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"HIGH"}`)
 	if paramsOf(t, env)["reasoning_effort"] != "high" {
-		t.Fatalf("reasoning_effort not normalized: %v", env)
+		t.Fatalf("effort not normalized: %v", env)
+	}
+	if _, err := buildEnvelope("deepseek/deepseek-v4-flash", []byte(`{"messages":[],"reasoning_effort":"none"}`)); err == nil {
+		t.Fatal("silently ignored disable request")
 	}
 }
 
@@ -412,6 +406,12 @@ func TestEnvelopeAdversarial(t *testing.T) {
 	}
 	for name, payload := range cases {
 		raw, err := buildEnvelope("m", []byte(payload))
+		if name == "broken-args" {
+			if err == nil {
+				t.Error("accepted malformed historical tool arguments")
+			}
+			continue
+		}
 		if err != nil {
 			t.Errorf("%s: %v", name, err)
 			continue

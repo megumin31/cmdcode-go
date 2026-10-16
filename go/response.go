@@ -153,7 +153,11 @@ func applyEvent(acc *accumulated, sink *eventSink, ev wireEvent, line []byte) (f
 		if id == "" {
 			id = newID()
 		}
-		input = compactJSON(input)
+		var err error
+		input, err = compactJSON(input)
+		if err != nil {
+			return false, fmt.Errorf("cmdcode-go: invalid tool arguments: %w", err)
+		}
 		acc.seenContent = true
 		if !acc.discard {
 			acc.toolCalls = append(acc.toolCalls, accumulatedTool{id: id, name: ev.ToolName, input: input})
@@ -208,16 +212,14 @@ func upstreamEventError(errVal any, line []byte) error {
 	return &upstreamStatusError{status: status, message: msg}
 }
 
-func compactJSON(raw json.RawMessage) json.RawMessage {
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return json.RawMessage(`{}`)
+func compactJSON(raw json.RawMessage) (json.RawMessage, error) {
+	var out bytes.Buffer
+	// Compact validates without interpreting numbers. A float64 round trip
+	// corrupts integers above 2^53, decimal precision and extreme exponents.
+	if err := json.Compact(&out, raw); err != nil {
+		return nil, err
 	}
-	out, err := json.Marshal(v)
-	if err != nil {
-		return json.RawMessage(`{}`)
-	}
-	return out
+	return json.RawMessage(out.Bytes()), nil
 }
 
 func mapFinishReason(reason string) string {

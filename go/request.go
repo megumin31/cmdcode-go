@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"runtime"
 	"strings"
 	"time"
@@ -100,23 +101,42 @@ type generateRequest struct {
 // Wire events
 func buildEnvelopeWithSnapshot(upstreamModel string, payload []byte, snap turnSnapshot) ([]byte, error) {
 	var chat chatRequest
-	if err := json.Unmarshal(payload, &chat); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	if err := decoder.Decode(&chat); err != nil {
 		return nil, fmt.Errorf("cmdcode-go: invalid openai chat payload: %w", err)
 	}
-	system, messages := toWireMessages(chat.Messages)
-	tools := toWireTools(chat.Tools)
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return nil, fmt.Errorf("cmdcode-go: chat payload must contain exactly one JSON value")
+	}
+	selection := parseModelName(upstreamModel)
+	if canonical, ok := snap.models.Match(selection.base); ok {
+		selection.base = canonical
+	}
+	effort, err := snap.models.reasoningEffort(selection, chat.ReasoningEffort)
+	if err != nil {
+		return nil, err
+	}
+	system, messages, err := toWireMessages(chat.Messages)
+	if err != nil {
+		return nil, err
+	}
+	tools, err := toWireTools(chat.Tools)
+	if err != nil {
+		return nil, err
+	}
 	if toolChoiceNone(chat.ToolChoice) {
 		tools = []any{}
 	}
 	params := wireParams{
-		Model:           upstreamModel,
+		Model:           selection.base,
 		System:          system,
 		Messages:        messages,
 		Tools:           tools,
-		MaxTokens:       snap.models.maxTokens(chat, upstreamModel),
+		MaxTokens:       snap.models.maxTokens(chat, selection.base),
 		Stream:          true, // the gateway rejects stream:false
 		Temperature:     chat.Temperature,
-		ReasoningEffort: normalizeReasoningEffort(chat.ReasoningEffort),
+		ReasoningEffort: effort,
 	}
 	req := generateRequest{
 		Config: wireConfig{
@@ -162,7 +182,7 @@ func (s *modelSnapshot) maxTokens(chat chatRequest, id string) int {
 // toWireMessages converts OpenAI messages to Vercel ModelMessage parts.
 // A single OpenAI user turn carrying tool results fans out to a tool-role
 // message followed by a user-role message, mirroring the CLI mapping.
-func toWireMessages(messages []chatMessage) (string, []any) {
+func toWireMessages(messages []chatMessage) (string, []any, error) {
 	var system strings.Builder
 	out := []any{}
 	toolNames := map[string]string{}
@@ -184,7 +204,10 @@ func toWireMessages(messages []chatMessage) (string, []any) {
 				parts = append(parts, map[string]any{"type": "text", "text": text})
 			}
 			for _, call := range msg.ToolCalls {
-				input := parseToolInput(call.Function.Arguments)
+				input, err := parseToolInput(call.Function.Arguments)
+				if err != nil {
+					return "", nil, fmt.Errorf("cmdcode-go: tool %q arguments: %w", call.Function.Name, err)
+				}
 				id := call.ID
 				if id == "" {
 					id = newID()
@@ -221,7 +244,7 @@ func toWireMessages(messages []chatMessage) (string, []any) {
 	if out == nil {
 		out = []any{}
 	}
-	return system.String(), out
+	return system.String(), out, nil
 }
 
 // messageText flattens string or part-array content to plain text.
@@ -444,21 +467,15 @@ func toolResultText(content any) string {
 	}
 }
 
-func parseToolInput(args string) any {
+func parseToolInput(args string) (json.RawMessage, error) {
 	trimmed := strings.TrimSpace(args)
 	if trimmed == "" {
-		return map[string]any{}
+		return json.RawMessage(`{}`), nil
 	}
-	var v any
-	if err := json.Unmarshal([]byte(trimmed), &v); err != nil {
-		// Never fail a turn on unparseable arguments; the CLI coerces
-		// unknown shapes server-side, so wrap the raw string instead.
-		return map[string]any{"_raw": args}
-	}
-	return v
+	return compactJSON(json.RawMessage(trimmed))
 }
 
-func toWireTools(tools []chatTool) []any {
+func toWireTools(tools []chatTool) ([]any, error) {
 	out := []any{}
 	for _, tool := range tools {
 		if tool.Type != "" && tool.Type != "function" {
@@ -467,64 +484,53 @@ func toWireTools(tools []chatTool) []any {
 		if tool.Function.Name == "" {
 			continue
 		}
-		schema := normalizeSchema(tool.Function.Parameters)
+		schema, err := normalizeSchema(tool.Function.Parameters)
+		if err != nil {
+			return nil, fmt.Errorf("cmdcode-go: tool %q schema: %w", tool.Function.Name, err)
+		}
 		out = append(out, map[string]any{
 			"name": tool.Function.Name, "description": tool.Function.Description,
 			"input_schema": schema,
 		})
 	}
-	return out
+	return out, nil
 }
 
-// normalizeSchema coerces tool parameter schemas into the record the gateway
-// demands: a JSON Schema with type "object". Missing, null, and non-object
-// schemas (arrays, strings, numbers) become {"type":"object","properties":{}}
-// (accept anything); double-encoded string schemas are unwrapped when they
-// hold an object. Object schemas keep their fields and gain type:"object"
-// when the type is absent: the gateway rejects typeless records outright
-// ("schema must be a JSON Schema of 'type: \"object\"', got 'type: null'"),
-// which previously broke every no-arg tool call whose client sent
-// parameters:null. Anything unparseable also becomes
-// {"type":"object","properties":{}} rather than failing the whole turn —
-// mirroring the CLI's coerce-not-reject stance.
-func normalizeSchema(raw json.RawMessage) json.RawMessage {
+// normalizeSchema accepts a missing/null no-argument schema and adds the
+// gateway's required object type to typeless records. Raw field values retain
+// numeric precision. Invalid or non-object schemas fail instead of silently
+// replacing the client's constraints with an unrestricted object.
+func normalizeSchema(raw json.RawMessage) (json.RawMessage, error) {
 	empty := json.RawMessage(`{"type":"object","properties":{}}`)
 	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 {
-		return empty
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return empty, nil
 	}
-	var v any
-	if err := json.Unmarshal(trimmed, &v); err != nil {
-		return empty
+	// Some clients serialize the schema object as a JSON string. Decode only
+	// that wrapper; its contents still must be an object and retain raw values.
+	if trimmed[0] == '"' {
+		var inner string
+		if err := json.Unmarshal(trimmed, &inner); err != nil {
+			return nil, fmt.Errorf("invalid encoded schema: %w", err)
+		}
+		trimmed = bytes.TrimSpace([]byte(inner))
+		if len(trimmed) == 0 || trimmed[0] != '{' {
+			return nil, fmt.Errorf("expected an object JSON Schema")
+		}
 	}
-	switch t := v.(type) {
-	case map[string]any:
-		if typ, ok := t["type"].(string); ok && strings.EqualFold(strings.TrimSpace(typ), "object") {
-			return trimmed
-		}
-		if typ, ok := t["type"].(string); ok && strings.TrimSpace(typ) != "" {
-			// Explicit non-object type: the gateway only accepts objects,
-			// so fall back to accepting anything instead of 400ing the turn.
-			return empty
-		}
-		t["type"] = "object"
-		out, err := json.Marshal(t)
-		if err != nil {
-			return empty
-		}
-		return out
-	case string:
-		var inner any
-		if err := json.Unmarshal([]byte(t), &inner); err != nil {
-			return empty
-		}
-		if _, ok := inner.(map[string]any); ok {
-			return normalizeSchema(json.RawMessage(t))
-		}
-		return empty
-	default:
-		return empty
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &fields); err != nil {
+		return nil, fmt.Errorf("expected an object JSON Schema: %w", err)
 	}
+	if typ, exists := fields["type"]; exists {
+		var value string
+		if err := json.Unmarshal(typ, &value); err != nil || value != "object" {
+			return nil, fmt.Errorf("gateway requires schema type object")
+		}
+		return compactJSON(trimmed)
+	}
+	fields["type"] = json.RawMessage(`"object"`)
+	return json.Marshal(fields)
 }
 
 // toolChoiceNone reports an explicit "no tools" directive, either the string
@@ -543,27 +549,6 @@ func toolChoiceNone(choice any) bool {
 		}
 	}
 	return false
-}
-
-// normalizeReasoningEffort clamps the effort to the gateway enum
-// (low|medium|high|xhigh|max, per its 400 message). OpenAI-side values
-// outside it degrade gracefully instead of failing the turn: "minimal"
-// maps to the closest level, disable/default spellings are omitted so the
-// gateway falls back to the model default — mirroring what the official CLI
-// sends (it only ever emits supported levels).
-func normalizeReasoningEffort(effort *string) *string {
-	if effort == nil {
-		return nil
-	}
-	switch normalized := strings.ToLower(strings.TrimSpace(*effort)); normalized {
-	case "low", "medium", "high", "xhigh", "max":
-		return &normalized
-	case "minimal":
-		low := "low"
-		return &low
-	default:
-		return nil
-	}
 }
 
 // ---------------------------------------------------------------------------

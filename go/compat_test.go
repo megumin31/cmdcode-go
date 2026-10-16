@@ -8,6 +8,8 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
+var defaultPlugin = NewPlugin(nil, nil)
+
 func getConfig() pluginConfig { return defaultPlugin.Config.Snapshot() }
 func setConfig(c pluginConfig) {
 	defaultPlugin.stateMu.Lock()

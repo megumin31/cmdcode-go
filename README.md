@@ -15,16 +15,21 @@ Access all Command Code Go models through standard OpenAI-compatible endpoints v
 
 ## Quick Start
 
-### 1. Build
+### 1. Download or build
+
+[Published releases](https://github.com/megumin31/cpa-cmdcode-go/releases) provide native Linux `amd64` and `arm64` archives after both architectures pass CI. Verify their checksums and completion manifest, then install the inner `cmdcode-go-v0.1.0.so` without renaming it. See [release instructions](docs/RELEASE.md).
+
+To build locally:
 
 ```bash
 git clone https://github.com/megumin31/cpa-cmdcode-go.git
 cd cpa-cmdcode-go
 mkdir -p build
-(cd go && CGO_ENABLED=1 go build -buildmode=c-shared -o ../build/cpa-cmdcode-go.so .)
+LIBRARY="$(cd go && go run ./cmd/buildmeta --field filename)"
+(cd go && CGO_ENABLED=1 go build -buildmode=c-shared -o "../build/$LIBRARY" .)
 ```
 
-Copy the generated `build/cpa-cmdcode-go.so` to your CLIProxyAPI plugins directory.
+Copy the generated `build/cmdcode-go-v0.1.0.so` to your CLIProxyAPI plugins directory.
 
 ### 2. Configure CLIProxyAPI
 
@@ -78,6 +83,10 @@ Fields under `plugins.configs.cmdcode-go`:
 | `models_refresh_interval` | Interval to check for remote roster updates | `"6h"` (`"0"` to use compiled-in roster only) |
 | `models_file` | Path to a local model catalog JSON file | Unset |
 | `models_url` | URL to fetch model catalog JSON from | `models.json` on `main` branch |
+
+## Development and CI
+
+Every branch push and pull request runs the same native Linux amd64/arm64 quality gate used by release builds: formatting, vet, tests, race detector, Python fixtures, workflow lint, C-shared build and the C ABI reload harness. Tests use local fakes and do not call live inference. See [local commands and CI artifacts](docs/CI.md) and [release retry rules](docs/RELEASE.md).
 
 ## License
 

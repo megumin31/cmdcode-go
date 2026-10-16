@@ -39,8 +39,6 @@ func NewPlugin(client *http.Client, host *hostCallbacks) *Plugin {
 	}
 }
 
-var defaultPlugin = NewPlugin(nil, nil)
-
 func (p *Plugin) begin(parent context.Context) (context.Context, func(), error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

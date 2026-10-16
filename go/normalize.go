@@ -33,6 +33,30 @@ func normalizeBefore(request []byte) ([]byte, error) {
 	return okEnvelope(pluginapi.PayloadResponse{Body: body})
 }
 
+// normalizeAfter bridges the pinned CPA host's completion-only CountTokens
+// translation. Only our reserved count marker is rewritten; normal responses
+// and streams pass through byte-for-byte, including other plugins' responses.
+func normalizeAfter(request []byte) ([]byte, error) {
+	var req pluginapi.ResponseTransformRequest
+	if err := json.Unmarshal(request, &req); err != nil {
+		return nil, err
+	}
+	body := req.Body
+	if !req.Stream && isOpenAIFormat(req.FromFormat) && isClaudeFormat(req.ToFormat) {
+		var carrier struct {
+			ID    string `json:"id"`
+			Type  string `json:"type"`
+			Usage struct {
+				InputTokens *int `json:"input_tokens"`
+			} `json:"usage"`
+		}
+		if json.Unmarshal(body, &carrier) == nil && carrier.ID == countResponseID && carrier.Type == "message" && carrier.Usage.InputTokens != nil && *carrier.Usage.InputTokens >= 0 {
+			body, _ = json.Marshal(map[string]int{"input_tokens": *carrier.Usage.InputTokens})
+		}
+	}
+	return okEnvelope(pluginapi.PayloadResponse{Body: body})
+}
+
 func isOpenAIFormat(format string) bool {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "", "none":
