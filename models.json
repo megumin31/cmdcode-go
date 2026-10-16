@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "source": "command-code bundled models.md",
-  "source_cli_version": "1.82.4",
+  "source_cli_version": "1.82.5",
   "source_path": "dist/bundled/command-code-knowledge/reference/models.md",
-  "source_sha256": "ae324b3cd2ac20d7638126bf3e0f2ca8dc00eb9cb8d30032365ec4e972d880d4",
-  "source_package_integrity": "sha512-C5ZaOa5ngWlrKSg37ssbw8HL7tyd+fqijBhlZjkrW9/hvkZgePGEVc6PCQ8Xzr+fyqNPpFkAoeSbMXvnFdOrww==",
-  "models_dev_rev": "3a072f5b5bce73e0993dcada48ea607719a7c552",
+  "source_sha256": "1c557b3940b177c094e4b66dc321e116bd87a3090b814bb71ccf60c79d6036c8",
+  "source_package_integrity": "sha512-LQXIp2dC2S9E3i07MLl8IQJyiBKdoa7c+LUc8UtkIQ5YEm+Oi7GmGT3QX2v9CQx06gzQUJ3bkyLPJLBCm6N3/g==",
+  "models_dev_rev": "3f893bf02c54a49ebdee0048a812e2ac7f5bd514",
   "counts": {
-    "catalog": 90,
-    "entitled": 54
+    "catalog": 92,
+    "entitled": 56
   },
   "models": [
     {
@@ -202,25 +202,6 @@
       "metadata_ref": "openai/gpt-6-luna.toml"
     },
     {
-      "id": "inclusionai/ling-3.0-flash-sante:free",
-      "display": "Ling 3.0 Flash Sante",
-      "description": "health & medicine tuned lightweight-MoE, still strong on code",
-      "min_plan": "Go",
-      "context": 262000,
-      "context_raw": "262K",
-      "reasoning_efforts": [],
-      "pricing_raw": "$0/$0 \u00b7 cache $0",
-      "context_source": "models.md",
-      "output": 65536,
-      "output_source": "fallback",
-      "output_ref": "",
-      "min_plan_source": "models.md",
-      "reasoning_efforts_source": "models.md",
-      "vision": null,
-      "vision_source": "unresolved",
-      "metadata_ref": ""
-    },
-    {
       "id": "inclusionai/ling-3.1-flash",
       "display": "Ling 3.1 Flash",
       "description": "hybrid-reasoning MoE for coding & tool-using agents",
@@ -309,6 +290,29 @@
       "vision": null,
       "vision_source": "unresolved",
       "metadata_ref": ""
+    },
+    {
+      "id": "meta/muse-spark-open",
+      "display": "Muse Spark Open",
+      "description": "open-weight Muse Spark for coding and agentic workflows",
+      "min_plan": "Go",
+      "context": 1050000,
+      "context_raw": "1.05M",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "pricing_raw": "$1.25/$4.25 \u00b7 cache $0.15",
+      "context_source": "models.md",
+      "output": 131072,
+      "output_source": "modelsdev",
+      "output_ref": "meta/muse-spark-open.toml",
+      "min_plan_source": "models.md",
+      "reasoning_efforts_source": "models.md",
+      "vision": true,
+      "vision_source": "modelsdev",
+      "metadata_ref": "meta/muse-spark-open.toml"
     },
     {
       "id": "MiniMaxAI/MiniMax-M2.5",
@@ -511,6 +515,29 @@
       "vision": false,
       "vision_source": "modelsdev",
       "metadata_ref": "nvidia/nemotron-3-ultra-550b-a55b.toml"
+    },
+    {
+      "id": "nvidia/nemotron-3.5-super-vl",
+      "display": "Nemotron 3.5 Super VL",
+      "description": "open vision-language model for coding and documents",
+      "min_plan": "Go",
+      "context": 262000,
+      "context_raw": "262K",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "pricing_raw": "$0.2/$0.5 \u00b7 cache $0.04",
+      "context_source": "models.md",
+      "output": 65536,
+      "output_source": "fallback",
+      "output_ref": "",
+      "min_plan_source": "models.md",
+      "reasoning_efforts_source": "models.md",
+      "vision": null,
+      "vision_source": "unresolved",
+      "metadata_ref": ""
     },
     {
       "id": "poolside/laguna-s-2.1-free",
@@ -740,6 +767,31 @@
       "vision": true,
       "vision_source": "modelsdev",
       "metadata_ref": "alibaba/qwen3.8-omni-flash.toml"
+    },
+    {
+      "id": "stealth/cat-jam:free",
+      "display": "Cat Jam",
+      "description": "stealth reasoning model for coding and agentic work",
+      "min_plan": "Go",
+      "context": 1050000,
+      "context_raw": "1.05M",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "pricing_raw": "$0/$0 \u00b7 cache $0",
+      "context_source": "models.md",
+      "output": 65536,
+      "output_source": "fallback",
+      "output_ref": "",
+      "min_plan_source": "models.md",
+      "reasoning_efforts_source": "models.md",
+      "vision": null,
+      "vision_source": "unresolved",
+      "metadata_ref": ""
     },
     {
       "id": "stealth/glyph-cluster:free",
@@ -1154,5 +1206,5 @@
       "metadata_ref": "zhipuai/glm-5.3.toml"
     }
   ],
-  "fetched_at": "2026-10-15T21:19:51Z"
+  "fetched_at": "2026-10-16T04:26:01Z"
 }
