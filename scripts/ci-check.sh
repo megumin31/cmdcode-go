@@ -21,6 +21,7 @@ ACTIONLINT_VERSION="$("$ACTIONLINT" -version)"
 "$ACTIONLINT" -color=false -shellcheck=
 for script in scripts/*.sh; do bash -n "$script"; done
 python3 -m unittest discover -s scripts -p 'test_*.py' -v
+python3 scripts/extract-models.py --check
 GOFMT="$("$GO" env GOROOT)/bin/gofmt"
 UNFORMATTED="$("$GOFMT" -l go)"
 if [[ -n "$UNFORMATTED" ]]; then

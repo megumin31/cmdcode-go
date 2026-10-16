@@ -304,12 +304,12 @@ func TestNormalizeReasoningEffort(t *testing.T) {
 			t.Errorf("level %q: %v %v", level, got, err)
 		}
 	}
-	for _, invalid := range []string{"minimal", "none", "off", "ultra", "8192"} {
+	for _, invalid := range []string{"ultra", "8192"} {
 		if _, err := s.reasoningEffort(parseModelName("test/model"), &invalid); err == nil {
 			t.Errorf("silently changed effort %q", invalid)
 		}
 	}
-	for _, defaultLevel := range []string{"auto", "default", "-1", ""} {
+	for _, defaultLevel := range []string{"auto", "default", "-1", "", "none", "off", "minimal"} {
 		if got, err := s.reasoningEffort(parseModelName("test/model"), &defaultLevel); err != nil || got != nil {
 			t.Errorf("default effort: %v %v", got, err)
 		}
@@ -318,8 +318,8 @@ func TestNormalizeReasoningEffort(t *testing.T) {
 	if paramsOf(t, env)["reasoning_effort"] != "high" {
 		t.Fatalf("effort not normalized: %v", env)
 	}
-	if _, err := buildEnvelope("deepseek/deepseek-v4-flash", []byte(`{"messages":[],"reasoning_effort":"none"}`)); err == nil {
-		t.Fatal("silently ignored disable request")
+	if _, err := buildEnvelope("deepseek/deepseek-v4-flash", []byte(`{"messages":[],"reasoning_effort":"none"}`)); err != nil {
+		t.Fatal("disable fallback rejected", err)
 	}
 }
 
@@ -808,8 +808,8 @@ func TestRemoteModelsFetchAndCache(t *testing.T) {
 	if _, ok := matchModel("test/remote-only"); !ok {
 		t.Fatal("remote-only model not routed")
 	}
-	if c := modelOutputCap("test/remote-small"); c != 65536 {
-		t.Fatalf("fallback output cap = %d, want 65536", c)
+	if c := modelOutputCap("test/remote-small"); c != 0 {
+		t.Fatalf("unknown output cap = %d, want 0", c)
 	}
 	for _, m := range got {
 		if m.ID == "cmdcode-go/test/remote-small" && m.DisplayName != "test/remote-small" {
@@ -827,10 +827,9 @@ func TestRemoteModelsFetchAndCache(t *testing.T) {
 
 func TestRemoteModelsInvalidFallsBack(t *testing.T) {
 	cases := map[string]string{
-		"garbage":        `{bad json`,
-		"wrong schema":   `{"schema_version":999,"models":[]}`,
-		"too few":        `{"schema_version":1,"models":[]}`,
-		"missing anchor": `{"schema_version":1,"models":[{"id":"test/x","display":"X","context":1,"output":1}]}`,
+		"garbage":      `{bad json`,
+		"wrong schema": `{"schema_version":999,"models":[]}`,
+		"too few":      `{"schema_version":1,"models":[]}`,
 	}
 	for name, body := range cases {
 		resetDynamicState(t)
@@ -847,7 +846,7 @@ func TestRemoteModelsInvalidFallsBack(t *testing.T) {
 }
 
 func TestDocumentedRosterCanRetireLegacyAnchor(t *testing.T) {
-	raw := []byte(`{"schema_version":1,"source":"command-code bundled models.md","models":[{"id":"test/new-go-model","context":200000,"output":32768}]}`)
+	raw := []byte(`{"schema_version":1,"source":"command-code Go plan page","models":[{"id":"test/new-go-model","context":200000,"output":32768}]}`)
 	defs, _, err := parseModelsFile(raw)
 	if err != nil || len(defs) != 1 {
 		t.Fatalf("documented roster without legacy anchor: %v, %v", defs, err)

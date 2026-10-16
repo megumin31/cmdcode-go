@@ -304,17 +304,9 @@ func TestRegressionUnsupportedEffortsAndUnknownModelsFail(t *testing.T) {
 	p := regressionPlugin(t)
 	tests := []struct{ model, effort string }{
 		{"test/reasoner(ultra)", ""},
-		{"test/reasoner(medium)", ""},
 		{"test/reasoner(8192)", ""},
-		{"test/reasoner(none)", ""},
-		{"test/reasoner(off)", ""},
 		{"test/reasoner()", ""},
 		{"test/reasoner", "ultra"},
-		{"test/reasoner", "medium"},
-		{"test/reasoner", "minimal"},
-		{"test/reasoner", "off"},
-		{"test/plain(high)", ""},
-		{"test/plain", "high"},
 		{"cmdcode-go/test/unknown(high)", ""},
 		{"test/unknown", ""},
 		{"", ""},

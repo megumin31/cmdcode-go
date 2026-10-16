@@ -22,16 +22,16 @@ A high-performance C-shared plugin for [CLIProxyAPI](https://github.com/router-f
 
 The plugin discovers and routes all Command Code Go entitled models. Call them using the `cmdcode-go/<model_id>` namespace or their short aliases:
 
-| Model | CPA Model ID | Context | Capabilities & Notes |
+| Model | CPA Model ID | Reference context | Capabilities & Notes |
 | :--- | :--- | :--- | :--- |
 | **DeepSeek V4 Flash** | `cmdcode-go/deepseek/deepseek-v4-flash` | 1M | Fast hybrid-attention reasoning, thinking tokens |
 | **DeepSeek V4 Flash Fast** | `cmdcode-go/deepseek/deepseek-v4-flash-fast` | 1M | Ultra-low latency inference |
-| **Kimi K3** | `cmdcode-go/moonshotai/Kimi-K3` | 200K | High-throughput reasoning & agentic tasks |
-| **GPT-4o** | `cmdcode-go/openai/gpt-4o` | 128K | Advanced multimodal reasoning & vision |
-| **Claude 3.5 Sonnet** | `cmdcode-go/anthropic/claude-3.5-sonnet` | 200K | Complex coding & nuanced analysis |
-| **Gemini 2.5 Flash** | `cmdcode-go/google/gemini-2.5-flash` | 1M | Long-context multimodal understanding |
+| **Kimi K3** | `cmdcode-go/moonshotai/Kimi-K3` | 1,048,576 | High-throughput reasoning & agentic tasks |
+| **MiMo V2.6 Pro** | `cmdcode-go/xiaomi/mimo-v2.6-pro` | 1,048,576 | Multimodal model; reasoning controls remain provider-specific |
+| **GLM-5.3** | `cmdcode-go/zai-org/GLM-5.3` | 1M | Reasoning and tool-use model |
+| **GPT-6 Luna** | `cmdcode-go/gpt-6-luna` | 1.05M | Long-context multimodal model |
 
-> See [models.json](models.json) for the complete catalog of 50+ entitled models.
+> See [models.json](models.json) for the current Go roster. Membership comes from the official Go page; capabilities are models.dev references, not verified gateway limits. Missing limits use a labeled 262,144-context / 65,536-output fallback profile. See [catalog generation and matching](docs/MODELS.md).
 
 ---
 

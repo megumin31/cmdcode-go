@@ -22,16 +22,16 @@
 
 本插件自动发现并路由 Command Code Go 套餐所包含的全部授权模型，通过 `cmdcode-go/<model_id>` 别名进行调用：
 
-| 模型名称 | CPA 模型 ID | 上下文窗口 | 能力特性与说明 |
+| 模型名称 | CPA 模型 ID | 上下文参考值 | 能力特性与说明 |
 | :--- | :--- | :--- | :--- |
 | **DeepSeek V4 Flash** | `cmdcode-go/deepseek/deepseek-v4-flash` | 1M | 极速混合注意力推理，输出思考过程 |
 | **DeepSeek V4 Flash Fast** | `cmdcode-go/deepseek/deepseek-v4-flash-fast` | 1M | 超低延迟极速推理 |
-| **Kimi K3** | `cmdcode-go/moonshotai/Kimi-K3` | 200K | 高吞吐深度推理与 Agentic 工具任务 |
-| **GPT-4o** | `cmdcode-go/openai/gpt-4o` | 128K | 高级通用多模态逻辑与视觉理解 |
-| **Claude 3.5 Sonnet** | `cmdcode-go/anthropic/claude-3.5-sonnet` | 200K | 复杂代码重构与细粒度分析 |
-| **Gemini 2.5 Flash** | `cmdcode-go/google/gemini-2.5-flash` | 1M | 超长上下文多模态理解 |
+| **Kimi K3** | `cmdcode-go/moonshotai/Kimi-K3` | 1,048,576 | 高吞吐深度推理与 Agentic 工具任务 |
+| **MiMo V2.6 Pro** | `cmdcode-go/xiaomi/mimo-v2.6-pro` | 1,048,576 | 多模态模型；推理控制方式取决于服务商 |
+| **GLM-5.3** | `cmdcode-go/zai-org/GLM-5.3` | 1M | 推理与工具调用模型 |
+| **GPT-6 Luna** | `cmdcode-go/gpt-6-luna` | 1.05M | 长上下文多模态模型 |
 
-> 完整 50+ 款授权模型列表参见 [models.json](models.json)。
+> 当前 Go 名单参见 [models.json](models.json)。套餐归属取自官方 Go 页面，能力参数来自 models.dev 参考资料，不代表已验证的网关限制。缺失限额统一采用标注为 fallback 的 262,144 上下文 / 65,536 输出默认值。详见[目录生成与匹配说明](docs/MODELS.md)。
 
 ---
 

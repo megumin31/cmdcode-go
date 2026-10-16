@@ -33,9 +33,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: "3.12"
@@ -43,40 +40,18 @@ jobs:
       - name: Test extractor
         run: python3 -m unittest discover -s scripts -p 'test_extract_models.py'
 
-      - name: Download exact official package without executing it
-        run: |
-          set -euo pipefail
-          VERSION="$(npm view command-code dist-tags.latest)"
-          PACK_DIR="$(mktemp -d)"
-          npm pack "command-code@$VERSION" --ignore-scripts --json --pack-destination "$PACK_DIR" > "$PACK_DIR/pack.json"
-          ARCHIVE="$(jq -er '.[0].filename' "$PACK_DIR/pack.json")"
-          INTEGRITY="$(jq -er '.[0].integrity' "$PACK_DIR/pack.json")"
-          tar -xzf "$PACK_DIR/$ARCHIVE" -C "$PACK_DIR" \
-            package/package.json \
-            package/dist/bundled/command-code-knowledge/reference/models.md
-          test "$(jq -r .version "$PACK_DIR/package/package.json")" = "$VERSION"
-          echo "CMD_PACKAGE=$PACK_DIR/package" >> "$GITHUB_ENV"
-          echo "CMD_INTEGRITY=$INTEGRITY" >> "$GITHUB_ENV"
-
-      - name: Fetch models.dev metadata
-        run: |
-          META_DIR="$(mktemp -d)"
-          git clone -q --depth 1 --filter=blob:none --sparse https://github.com/anomalyco/models.dev "$META_DIR"
-          git -C "$META_DIR" sparse-checkout set models
-          echo "MODELS_DEV=$META_DIR" >> "$GITHUB_ENV"
-
       - name: Generate and validate roster
         env:
           ALLOW_DRIFT: ${{ inputs.allow_large_drift }}
         run: |
           EXTRA=()
           if [ "$ALLOW_DRIFT" = "true" ]; then EXTRA+=(--allow-large-drift); fi
-          python3 scripts/extract-models.py \
-            --models-md "$CMD_PACKAGE/dist/bundled/command-code-knowledge/reference/models.md" \
-            --package "$CMD_PACKAGE/package.json" --package-integrity "$CMD_INTEGRITY" \
-            --prev models.json --models-dev "$MODELS_DEV/models" \
-            --models-dev-rev "$(git -C "$MODELS_DEV" rev-parse HEAD)" \
+          # Public GETs only: Go planScope IDs + models.dev catalog JSON.
+          # The extractor bounds/retries downloads and validates both sources
+          # before replacing either generated file.
+          python3 scripts/extract-models.py --prev models.json \
             --out models.json --gen go/models_generated.go "${EXTRA[@]}"
+          python3 scripts/extract-models.py --check
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -91,7 +66,7 @@ jobs:
       - name: Commit refreshed roster
         uses: stefanzweifel/git-auto-commit-action@28e16e81777b558cc906c8750092100bbb34c5e3 # v7.0.0
         with:
-          commit_message: "chore(models): refresh roster from bundled models.md"
+          commit_message: "chore(models): refresh Go plan roster and model references"
           file_pattern: "models.json go/models_generated.go"
           # Commit exactly the tested checkout. If upstream advanced meanwhile,
           # ordinary non-force push fails instead of rebasing untested changes.

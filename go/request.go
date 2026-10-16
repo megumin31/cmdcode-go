@@ -170,7 +170,12 @@ func (s *modelSnapshot) maxTokens(chat chatRequest, id string) int {
 	}
 	if known {
 		if !explicit && d.output > 0 {
-			want = min(want, int(d.output))
+			if d.outputSource == "fallback" {
+				// A configured fallback is a request default, never a model cap.
+				want = int(d.output)
+			} else {
+				want = min(want, int(d.output))
+			}
 		}
 		if d.gatewayOutput > 0 {
 			want = min(want, int(d.gatewayOutput))

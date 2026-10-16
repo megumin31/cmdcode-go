@@ -13,6 +13,7 @@ type modelDef struct {
 	id, display, description string
 	context, output          int64
 	outputSource             string
+	contextSource            string
 	gatewayOutput            int64
 	vision                   *bool
 	efforts                  []string
@@ -149,13 +150,26 @@ func (s *modelSnapshot) reasoningEffort(selection modelSelection, body *string) 
 	if level == "auto" || level == "default" || level == "-1" || (level == "" && selection.suffix == nil) {
 		return nil, nil
 	}
+	// Disable/minimal requests cannot be represented by this gateway contract.
+	// Omit them for compatibility, leaving the provider default in effect.
+	// This is deliberately NOT a promise that reasoning has been disabled.
+	if level == "none" || level == "off" || level == "minimal" {
+		return nil, nil
+	}
 	if gatewayEffort(level) {
 		if d, ok := s.Definition(selection.base); ok {
+			// An empty catalog column is not a verified denial of capability.
+			// Preserve the original gateway-compatible level in that case.
+			if len(d.efforts) == 0 {
+				return &level, nil
+			}
 			for _, supported := range supportedEfforts(d) {
 				if level == supported {
 					return &level, nil
 				}
 			}
+			// Match the official client: unsupported levels use the model default.
+			return nil, nil
 		}
 	}
 	return nil, fmt.Errorf("cmdcode-go: reasoning effort %q is unsupported for model %q", level, selection.base)
@@ -172,6 +186,10 @@ func (s *modelSnapshot) Registered(cfg pluginConfig) []pluginapi.ModelInfo {
 			inputs = append(inputs, "image")
 		}
 		// Unknown/fallback budgets are not advertised as verified model limits.
+		context := d.context
+		if d.contextSource == "fallback" {
+			context = 0
+		}
 		output := d.output
 		if d.outputSource == "fallback" {
 			output = 0
@@ -183,7 +201,7 @@ func (s *modelSnapshot) Registered(cfg pluginConfig) []pluginapi.ModelInfo {
 		m := pluginapi.ModelInfo{
 			ID: modelID, Object: "model", OwnedBy: ProviderKey, Type: ProviderKey,
 			DisplayName: d.display, Name: modelID, Description: d.description,
-			ContextLength: d.context, InputTokenLimit: d.context,
+			ContextLength: context, InputTokenLimit: context,
 			MaxCompletionTokens: output, OutputTokenLimit: output,
 			SupportedGenerationMethods: []string{"chat"},
 			SupportedInputModalities:   inputs, SupportedOutputModalities: []string{"text"},

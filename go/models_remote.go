@@ -18,9 +18,6 @@ const (
 	defaultRefreshInterval       = 6 * time.Hour
 	modelsFetchTimeout           = 8 * time.Second
 	modelsMinRetryInterval       = 5 * time.Minute
-	modelsMustContain            = "deepseek/deepseek-v4-flash"
-	modelsFallbackContext  int64 = 262144
-	modelsFallbackOutput   int64 = 65536
 	maxRosterBytes         int64 = 4 << 20
 )
 
@@ -37,6 +34,7 @@ type remoteModel struct {
 	Context       int64    `json:"context"`
 	Output        int64    `json:"output"`
 	OutputSource  string   `json:"output_source"`
+	ContextSource string   `json:"context_source"`
 	Vision        *bool    `json:"vision"`
 	Efforts       []string `json:"reasoning_efforts"`
 	GatewayOutput int64    `json:"gateway_output_limit"`
@@ -202,7 +200,6 @@ func parseModelsFile(raw []byte) ([]modelDef, string, error) {
 	}
 	defs := make([]modelDef, 0, len(doc.Models))
 	seen, shorts := map[string]bool{}, map[string]bool{}
-	found := false
 	for _, m := range doc.Models {
 		id := strings.TrimSpace(m.ID)
 		id = strings.TrimPrefix(id, "cpa-cmdcode-go/")
@@ -212,33 +209,22 @@ func parseModelsFile(raw []byte) ([]modelDef, string, error) {
 			return nil, "", fmt.Errorf("empty, invalid or duplicate model ID/short name: %q", id)
 		}
 		seen[strings.ToLower(id)], shorts[short] = true, true
-		if strings.EqualFold(id, modelsMustContain) {
-			found = true
-		}
 		if m.Context < 0 || m.Output < 0 || m.GatewayOutput < 0 {
 			return nil, "", fmt.Errorf("negative model budget: %s", id)
 		}
-		if m.Context == 0 {
-			m.Context = modelsFallbackContext
-		}
-		if m.Output == 0 {
-			m.Output = min(modelsFallbackOutput, m.Context)
-			m.OutputSource = "fallback"
-		}
-		if m.Output > m.Context || m.GatewayOutput > m.Context {
+		// Zero means unknown metadata, not a model limit or request default.
+		// Validate against context only when that reference is known.
+		if m.Context > 0 && m.ContextSource != "fallback" && (m.Output > m.Context || m.GatewayOutput > m.Context) {
 			return nil, "", fmt.Errorf("output exceeds context: %s", id)
 		}
 		if m.Display == "" {
 			m.Display = id
 		}
 		defs = append(defs, modelDef{
-			id: id, display: m.Display, description: m.Description, context: m.Context,
+			id: id, display: m.Display, description: m.Description, context: m.Context, contextSource: m.ContextSource,
 			output: m.Output, outputSource: m.OutputSource, vision: m.Vision,
 			efforts: append([]string(nil), m.Efforts...), gatewayOutput: m.GatewayOutput,
 		})
-	}
-	if !found && doc.Source != "command-code bundled models.md" {
-		return nil, "", fmt.Errorf("missing legacy anchor model %q", modelsMustContain)
 	}
 	return defs, doc.SourceCLIVersion, nil
 }
