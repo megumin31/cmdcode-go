@@ -2,9 +2,9 @@
   "schema_version": 1,
   "source": "command-code Go plan page",
   "source_url": "https://commandcode.ai/docs/plans/go",
-  "source_sha256": "84f00af91679910057b00ea18bc42c27cf2717e8eadfc6b23d48ced95689fe32",
+  "source_sha256": "2b70981ec9d4bb819e2e1c780deb37a1de91616a21d9de88a96c04e3342ec87b",
   "models_dev_url": "https://models.dev/catalog.json",
-  "models_dev_sha256": "0bd330b679c4a6afd55cd287888e080a432d731b0ad4793e518a9ebc92df2c06",
+  "models_dev_sha256": "dd84f83f28dc8cc7a90f3b3c1477cb14694da6697629f170f61e699268e1cd2c",
   "fallback_profile": {
     "context": 262144,
     "output": 65536
@@ -164,7 +164,7 @@
     },
     {
       "id": "deepseek/deepseek-v4.1-flash-fast",
-      "display": "DeepSeek V4.1 Flash Fast",
+      "display": "DeepSeek V4.1 Flash Fast (latest)",
       "description": "DeepSeek V4.1 Flash model for reasoning and agentic coding",
       "min_plan": "Go",
       "min_plan_source": "command-code Go plan page",
@@ -2024,5 +2024,5 @@
       "metadata_candidates": []
     }
   ],
-  "fetched_at": "2026-10-17T15:29:20Z"
+  "fetched_at": "2026-10-17T20:33:06Z"
 }
