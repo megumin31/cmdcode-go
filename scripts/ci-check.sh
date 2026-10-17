@@ -15,6 +15,10 @@ TEST_HOME="$(mktemp -d)"
 trap 'rm -rf -- "$TEST_HOME"' EXIT
 export COMMANDCODE_CONFIG_DIR="$TEST_HOME"
 mkdir -p build/ci-logs
+BUILD_VERSION="$(python3 scripts/release_version.py --ref "${GITHUB_REF:-}" --event "${GITHUB_EVENT_NAME:-local}")"
+BUILD_TAG=dev
+if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then BUILD_TAG="${GITHUB_REF#refs/tags/}"; fi
+VERSION_LDFLAGS="-X cpa-cmdcode-go/internal/buildinfo.Version=$BUILD_VERSION -X cpa-cmdcode-go/internal/buildinfo.BuildTag=$BUILD_TAG"
 
 ACTIONLINT_VERSION="$("$ACTIONLINT" -version)"
 [[ "${ACTIONLINT_VERSION%%$'\n'*}" == v1.7.12 ]]
@@ -32,9 +36,9 @@ fi
 "$GO" -C go vet ./...
 "$GO" -C go test -count=1 ./...
 "$GO" -C go test -race -count=1 ./...
-"$GO" -C go run ./cmd/buildmeta > build/ci-logs/plugin-metadata.json
-LIBRARY="$("$GO" -C go run ./cmd/buildmeta --field filename)"
+"$GO" -C go run -ldflags "$VERSION_LDFLAGS" ./cmd/buildmeta > build/ci-logs/plugin-metadata.json
+LIBRARY="$("$GO" -C go run -ldflags "$VERSION_LDFLAGS" ./cmd/buildmeta --field filename)"
 [[ "$LIBRARY" =~ ^cmdcode-go-v[0-9]+\.[0-9]+\.[0-9]+\.so$ ]]
-"$GO" -C go build -buildmode=c-shared -o "../build/$LIBRARY" .
-bash scripts/test_abi_reload.sh "$PWD/build/$LIBRARY"
+"$GO" -C go build -ldflags "$VERSION_LDFLAGS" -buildmode=c-shared -o "../build/$LIBRARY" .
+EXPECTED_PLUGIN_VERSION="$BUILD_VERSION" bash scripts/test_abi_reload.sh "$PWD/build/$LIBRARY"
 printf 'Complete offline quality gate passed: %s\n' "$LIBRARY"

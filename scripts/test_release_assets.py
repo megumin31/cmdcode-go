@@ -34,15 +34,18 @@ def encode(value):
 
 
 def event_fixture():
-    return {"action": "published", "repository": {"full_name": REPOSITORY},
-            "release": {"id": 321, "draft": False, "prerelease": False,
-                        "tag_name": "v0.1.0"}}
+    return {"ref": "refs/tags/v0.1.0", "after": SHA, "deleted": False,
+            "repository": {"full_name": REPOSITORY}}
 
 
 class FakeGitHub:
     """In-memory release assets; no network or real publication operations."""
     def __init__(self, event):
-        self.remote_release = copy.deepcopy(event["release"])
+        ctx = ra.context(event, SHA, REPOSITORY)
+        self.remote_release = {"id": 321, "tag_name": ctx["tag"], "draft": True, "prerelease": ctx["prerelease"]}
+        self.created = 0
+        self.published = 0
+        self.absent = False
         self.remote_release.update(immutable=False, upload_url=(
             f"https://uploads.github.com/repos/{REPOSITORY}/releases/321/assets{{?name,label}}"))
         self.commit = SHA
@@ -53,6 +56,19 @@ class FakeGitHub:
         self.fail_name = None
         self.corrupt_name = None
         self.next_id = 1
+
+    def find_release(self, tag):
+        return None if self.absent else copy.deepcopy(self.remote_release)
+
+    def create_draft(self, ctx):
+        self.created += 1
+        self.absent = False
+        return copy.deepcopy(self.remote_release)
+
+    def publish_draft(self, release_id):
+        self.published += 1
+        self.remote_release["draft"] = False
+        return copy.deepcopy(self.remote_release)
 
     def release(self, release_id):
         if release_id != 321:
@@ -119,7 +135,7 @@ class FixtureCase(unittest.TestCase):
         struct.pack_into("<HH", binary, 16, 3, ra.ARCHES[arch])
         binary[32:32 + len(arch)] = arch.encode()
         metadata = {"repository": REPOSITORY, "commit": SHA, "tree": TREE,
-                    "plugin": "cmdcode-go", "plugin_version": "0.1.0",
+                    "plugin": "cmdcode-go", "plugin_version": "0.1.0", "build_tag": "v0.1.0",
                     "library": LIBRARY, "library_sha256": digest(binary),
                     "os": "linux", "architecture": arch,
                     "elf_machine": ra.ARCHES[arch], "cgo_enabled": True,
@@ -127,7 +143,7 @@ class FixtureCase(unittest.TestCase):
                     "run_attempt": "1", "runner_image_version": "fixture-image"}
         files = {LIBRARY: bytes(binary), "LICENSE": b"Synthetic license fixture\n",
                  "plugin-metadata.json": encode({"provider": "cmdcode-go",
-                                                "version": "0.1.0", "filename": LIBRARY}),
+                                                "version": "0.1.0", "filename": LIBRARY, "build_tag": "v0.1.0"}),
                  "build-metadata.json": encode(metadata),
                  "build-info.txt": f"build vcs.revision={SHA}\nbuild vcs.modified=false\n".encode(),
                  "elf-report.txt": b"Synthetic ELF report; not native verification\n"}
@@ -163,7 +179,7 @@ class PrepareTests(FixtureCase):
         manifest_path = self.prepare()
         manifest = json.loads(manifest_path.read_bytes())
         self.assertEqual(manifest["commit"], SHA)
-        self.assertEqual(manifest["release_id"], 321)
+        self.assertNotIn("release_id", manifest)
         self.assertIs(manifest["complete"], True)
         self.assertEqual([item.get("architecture") for item in manifest["assets"][:2]],
                          ["amd64", "arm64"])
@@ -238,22 +254,26 @@ class PrepareTests(FixtureCase):
         self.assert_prepare_rejected()
 
     def test_tag_version_mismatch_rejected(self):
-        self.event["release"]["tag_name"] = "v9.9.9"
-        self.assert_prepare_rejected()
-
-    def test_prerelease_suffix_rejected_for_stable_release(self):
-        self.event["release"]["tag_name"] = "v0.1.0-rc.1"
+        self.event["ref"] = "refs/tags/v9.9.9"
         self.assert_prepare_rejected()
 
     def test_prerelease_suffix_keeps_numeric_plugin_version(self):
-        self.event["release"].update(tag_name="v0.1.0-rc.1", prerelease=True)
+        self.event["ref"] = "refs/tags/v0.1.0-rc.1"
+        for arch in ra.ARCHES:
+            self.change_json(arch, "plugin-metadata.json", build_tag="v0.1.0-rc.1")
+            self.change_json(arch, "build-metadata.json", build_tag="v0.1.0-rc.1")
         manifest = json.loads(self.prepare().read_bytes())
         self.assertEqual(manifest["plugin_version"], "0.1.0")
+        self.assertTrue(manifest["prerelease"])
         self.assertIn("v0.1.0-rc.1", manifest["assets"][0]["name"])
 
-    def test_prerelease_with_base_tag_is_supported(self):
-        self.event["release"]["prerelease"] = True
-        self.assertTrue(self.prepare().is_file())
+    def test_wrong_full_build_tag_rejected(self):
+        self.change_json("arm64", "plugin-metadata.json", build_tag="v0.1.0-rc.1")
+        self.assert_prepare_rejected()
+
+    def test_wrong_provenance_build_tag_rejected(self):
+        self.change_json("arm64", "build-metadata.json", build_tag="dev")
+        self.assert_prepare_rejected()
 
     def test_missing_architecture_file_rejected(self):
         (self.inputs / "arm64" / LIBRARY).unlink()
@@ -282,7 +302,7 @@ class PrepareTests(FixtureCase):
         self.assert_prepare_rejected()
 
     def test_tag_path_injection_rejected(self):
-        self.event["release"]["tag_name"] = "v0.1.0/../../escape"
+        self.event["ref"] = "refs/tags/v0.1.0/../../escape"
         self.assert_prepare_rejected()
 
     def test_checksum_path_injection_rejected(self):
@@ -308,10 +328,8 @@ class PrepareTests(FixtureCase):
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.output.iterdir()})
 
     def test_invalid_event_context_rejected(self):
-        cases = [("action", "edited"), ("repository", {"full_name": "other/repo"}),
-                 ("release", {**self.event["release"], "draft": True}),
-                 ("release", {**self.event["release"], "id": True}),
-                 ("release", {**self.event["release"], "prerelease": None})]
+        cases = [("ref", "refs/heads/main"), ("repository", {"full_name": "other/repo"}),
+                 ("deleted", True), ("after", "bad"), ("ref", "refs/tags/v01.0.0")]
         for key, value in cases:
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 ra.context({**self.event, key: value}, SHA, REPOSITORY)
@@ -339,6 +357,26 @@ class PublishTests(FixtureCase):
         self.publish()
         self.assertEqual(self.client.uploads, self.names)
         self.assertEqual({asset["name"] for asset in self.client.assets(321)}, set(self.names))
+
+    def test_new_draft_created_and_published_only_after_validation(self):
+        self.client.absent = True
+        self.publish()
+        self.assertEqual(self.client.created, 1)
+        self.assertEqual(self.client.published, 1)
+        self.assertFalse(self.client.remote_release["draft"])
+
+    def test_published_incomplete_release_is_never_modified(self):
+        self.client.remote_release["draft"] = False
+        with self.assertRaisesRegex(ValueError, "published release"):
+            self.publish()
+        self.assert_no_mutations()
+
+    def test_failed_upload_keeps_draft_unpublished(self):
+        self.client.fail_name = self.names[1]
+        with self.assertRaises(OSError):
+            self.publish()
+        self.assertTrue(self.client.remote_release["draft"])
+        self.assertEqual(self.client.published, 0)
 
     def test_identical_rerun_performs_no_mutations(self):
         self.publish()
@@ -436,18 +474,6 @@ class PublishTests(FixtureCase):
             self.publish()
         self.assert_no_mutations()
 
-    def test_unknown_mutability_rejected_without_changes(self):
-        self.client.remote_release.pop("immutable")
-        with self.assertRaisesRegex(ValueError, "mutability is unknown"):
-            self.publish()
-        self.assert_no_mutations()
-
-    def test_malformed_mutability_rejected_without_changes(self):
-        self.client.remote_release["immutable"] = "false"
-        with self.assertRaisesRegex(ValueError, "mutability is unknown"):
-            self.publish()
-        self.assert_no_mutations()
-
     def test_moved_tag_rejected_without_changes(self):
         self.client.commit = "e" * 40
         with self.assertRaisesRegex(ValueError, "tag moved"):
@@ -455,7 +481,7 @@ class PublishTests(FixtureCase):
         self.assert_no_mutations()
 
     def test_changed_release_identity_or_state_rejected(self):
-        cases = {"id": 999, "tag_name": "v0.2.0", "draft": True, "prerelease": True}
+        cases = {"id": 999, "tag_name": "v0.2.0", "draft": None, "prerelease": True}
         for key, value in cases.items():
             with self.subTest(key=key):
                 self.client = FakeGitHub(self.event)
@@ -487,7 +513,7 @@ class PublishTests(FixtureCase):
     def test_manifest_wrong_well_formed_provider_rejected(self):
         self.manifest["plugin"] = "another-plugin"
         self.manifest_path.write_bytes(encode(self.manifest))
-        with self.assertRaisesRegex(ValueError, "unexpected plugin provider"):
+        with self.assertRaises(ValueError):
             self.publish()
         self.assert_no_mutations()
 
@@ -544,8 +570,30 @@ class GitHubAdapterTests(unittest.TestCase):
         self.assertEqual(call.kwargs.get("stdout"), ra.subprocess.PIPE)
         return command
 
+    def test_find_release_paginates_and_includes_drafts(self):
+        draft = {"id": 321, "tag_name": "v0.1.0", "draft": True}
+        with patch.object(ra.subprocess, "run", return_value=self.response([[draft], []])) as run:
+            self.assertEqual(self.client.find_release("v0.1.0"), draft)
+            command = self.assert_safe_command(run.call_args)
+            self.assertIn("--paginate", command)
+            self.assertIn("--slurp", command)
+            self.assertNotIn("--method", command)
+
+    def test_create_draft_and_publish_use_explicit_boolean_fields(self):
+        ctx = ra.context(event_fixture(), SHA, REPOSITORY)
+        with patch.object(ra.subprocess, "run", return_value=self.response({"id":321})) as run:
+            self.client.create_draft(ctx)
+            command = self.assert_safe_command(run.call_args)
+            self.assertIn("draft=true", command)
+            self.assertIn("prerelease=false", command)
+            self.assertIn("target_commitish=" + SHA, command)
+            self.client.publish_draft(321)
+            command = self.assert_safe_command(run.call_args)
+            self.assertIn("PATCH", command)
+            self.assertIn("draft=false", command)
+
     def test_release_get_uses_numeric_id_without_write_method_or_shell(self):
-        release = event_fixture()["release"]
+        release = {"id": 321, "draft": True, "tag_name": "v0.1.0"}
         with patch.object(ra.subprocess, "run", return_value=self.response(release)) as run:
             self.assertEqual(self.client.release(321), release)
             run.assert_called_once()

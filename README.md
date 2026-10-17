@@ -50,7 +50,7 @@ chmod 700 /path/to/cliproxyapi/plugins/cmdcode-go-v0.1.0.so
 
 ### 2. Build from Source
 
-Requires Go 1.22+ and a C compiler (GCC or Clang):
+Requires Go 1.26.9 and a C compiler (GCC or Clang):
 
 ```bash
 git clone https://github.com/megumin31/cpa-cmdcode-go.git
@@ -61,6 +61,8 @@ LIBRARY="$(cd go && go run ./cmd/buildmeta --field filename)"
 cp "build/$LIBRARY" /path/to/cliproxyapi/plugins/
 chmod 700 "/path/to/cliproxyapi/plugins/$LIBRARY"
 ```
+
+Source builds default to unreleased `0.0.0` (`build_tag=dev`). To publish a tested commit, push a new version tag; CI injects that version and creates the Release automatically. See [release instructions](docs/RELEASE.md).
 
 ### 3. Configure CPA
 

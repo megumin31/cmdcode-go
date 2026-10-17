@@ -1,10 +1,10 @@
 # Native quality gate
 
 `.github/workflows/build-plugin.yml` calls the reusable `quality-gate.yml` for
-every branch push, pull request, manual run and published GitHub Release.
-`release: types: [published]` covers stable releases and prereleases, including
-prereleases published from drafts. Tag pushes are intentionally excluded: they
-do not provide a second release trigger.
+every branch push, pull request, manual branch run and `v*` tag push.
+Only a valid tag push publishes a Release after both native gates succeed;
+there is no `release.published` trigger. See [tag-driven releases](RELEASE.md).
+Branches and PRs build numeric ABI version `0.0.0` with `build_tag=dev`.
 
 ## What runs
 
@@ -25,7 +25,7 @@ cannot be executed by its test runner:
 3. Go formatting, module checksum verification, vet, unit tests and race tests.
 4. A native CGO C-shared build using the filename from `go/internal/buildinfo`.
 5. The C ABI harness against that exact library: same-path reload, repeated
-   shutdown, double-init rejection and configuration isolation.
+   shutdown, double-init rejection, configuration isolation and the loaded library's registration version matching the injected build metadata.
 
 All test traffic is synthetic or loopback. No provider keys are required; the
 gate clears inherited Command Code key variables and uses a temporary CLI
@@ -55,7 +55,7 @@ workflow; its old PR trigger is replaced by the central dual-architecture gate.
 No `workflow_run` loop or dispatch chaining is used. GitHub-token bot commits do
 not trigger another push workflow; these automated commits therefore receive
 the refresh job's amd64 precommit gate, not an automatic dual-architecture run.
-A later ordinary branch push, PR or published release runs both architectures.
+A later ordinary branch push, PR or tag push runs both architectures.
 The updater commits exactly its tested tree; if the remote branch advances,
 the non-force push fails rather than rebasing or overwriting untested changes.
 

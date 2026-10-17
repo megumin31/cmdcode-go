@@ -46,11 +46,11 @@ cp cmdcode-go-v0.1.0.so /path/to/cliproxyapi/plugins/
 chmod 700 /path/to/cliproxyapi/plugins/cmdcode-go-v0.1.0.so
 ```
 
-> **注意**：请勿重命名该 `.so` 文件，CPA 要求严格保留版本号命名。详见 [发布说明文档](docs/RELEASE.md)。
+> **注意**：请勿重命名该 `.so` 文件，CPA 要求严格保留版本号命名。详见 [发布说明文档](docs/RELEASE_zh.md)。
 
 ### 2. 源码本地编译
 
-环境要求：Go 1.22+ 及 C 编译器（GCC 或 Clang）：
+环境要求：Go 1.26.9 及 C 编译器（GCC 或 Clang）：
 
 ```bash
 git clone https://github.com/megumin31/cpa-cmdcode-go.git
@@ -61,6 +61,8 @@ LIBRARY="$(cd go && go run ./cmd/buildmeta --field filename)"
 cp "build/$LIBRARY" /path/to/cliproxyapi/plugins/
 chmod 700 "/path/to/cliproxyapi/plugins/$LIBRARY"
 ```
+
+本地源码构建默认为未发布的 `0.0.0`（`build_tag=dev`）。给测试通过的提交推送新版本标签后，CI 自动注入版本并创建 Release。详见[标签发版说明](docs/RELEASE_zh.md)。
 
 ### 3. 配置 CPA
 

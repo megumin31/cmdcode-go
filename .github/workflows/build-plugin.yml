@@ -3,19 +3,17 @@ name: Build Linux plugins
 'on':
   push:
     branches: ['**']
+    tags: ['v*']
   pull_request:
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# No tag-push release path: publishing a release is the sole upload trigger.
-# Separate event groups prevent a push from cancelling a release build.
+# Tag pushes are the sole publication trigger; branches and PRs only validate.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'release' }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   quality:
@@ -24,8 +22,8 @@ jobs:
       contents: read
 
   publish:
-    name: Attach verified release assets
-    if: ${{ github.event_name == 'release' && github.event.action == 'published' }}
+    name: Publish verified tag release
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     needs: quality
     runs-on: ubuntu-22.04
     timeout-minutes: 15

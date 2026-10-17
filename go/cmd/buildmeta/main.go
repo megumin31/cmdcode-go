@@ -14,7 +14,7 @@ import (
 func run(args []string, out, errOut io.Writer) error {
 	flags := flag.NewFlagSet("buildmeta", flag.ContinueOnError)
 	flags.SetOutput(errOut)
-	field := flags.String("field", "", "print provider, version, or filename; default: JSON")
+	field := flags.String("field", "", "print provider, version, build_tag, or filename; default: JSON")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -24,8 +24,9 @@ func run(args []string, out, errOut io.Writer) error {
 	metadata := struct {
 		Provider string `json:"provider"`
 		Version  string `json:"version"`
+		BuildTag string `json:"build_tag"`
 		Filename string `json:"filename"`
-	}{buildinfo.Provider, buildinfo.Version, buildinfo.Filename}
+	}{buildinfo.Provider, buildinfo.Version, buildinfo.BuildTag, buildinfo.Filename}
 	var value string
 	switch *field {
 	case "":
@@ -34,6 +35,8 @@ func run(args []string, out, errOut io.Writer) error {
 		value = metadata.Provider
 	case "version":
 		value = metadata.Version
+	case "build_tag":
+		value = metadata.BuildTag
 	case "filename":
 		value = metadata.Filename
 	default:

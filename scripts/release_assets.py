@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-"""Package verified native builds; attach them only to the triggering release.
-
-prepare is entirely offline. publish uses the runner's gh CLI and short-lived
-GH_TOKEN; it never creates a release/tag or overwrites a valid existing asset.
+"""Verify tag builds, upload a draft release, then publish the verified asset set.
+No tag writes, force updates, or replacement of existing uploaded assets.
 """
 import argparse
 import gzip
@@ -16,6 +14,7 @@ import sys
 import tarfile
 from pathlib import Path
 from urllib.parse import quote, urlsplit
+from release_version import parse_tag
 
 ARCHES = {"amd64": 62, "arm64": 183}
 PROVIDER = "cmdcode-go"
@@ -44,20 +43,19 @@ def read_file(path):
 def context(event, commit, repository):
     require(re.fullmatch(r"[0-9a-f]{40}", commit), "expected a full commit SHA")
     require(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository), "invalid repository")
-    require(event.get("action") == "published", "only release.published is supported")
     require(event.get("repository", {}).get("full_name") == repository, "event repository mismatch")
-    release = event.get("release", {})
-    require(type(release.get("id")) is int and release["id"] > 0, "invalid release ID")
-    require(release.get("draft") is False, "release must already be published")
-    require(type(release.get("prerelease")) is bool, "missing prerelease state")
-    require(re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?", release.get("tag_name", "")), "tag must be vX.Y.Z or vX.Y.Z-prerelease")
-    return {"repository": repository, "release_id": release["id"], "tag": release["tag_name"], "prerelease": release["prerelease"], "commit": commit}
+    require(event.get("deleted") is False, "deleted tags cannot release")
+    require(re.fullmatch(r"[0-9a-f]{40}", event.get("after", "")), "invalid tag push object")
+    ref = event.get("ref", "")
+    require(ref.startswith("refs/tags/"), "only tag pushes can release")
+    tag = ref[len("refs/tags/"):]
+    _, prerelease = parse_tag(tag)
+    return {"repository": repository, "tag": tag, "prerelease": prerelease, "commit": commit}
 
 
 def validate_tag(version, tag, prerelease):
-    require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version), "plugin version must retain its numeric ABI format")
-    base = "v" + version
-    require(tag == base or (prerelease and tag.startswith(base + "-")), "release tag does not match internal/buildinfo version (suffixes require a prerelease)")
+    expected, is_pre = parse_tag(tag)
+    require(version == expected and prerelease == is_pre, "release tag does not match injected plugin version")
 
 
 def validate_build(directory, arch, ctx):
@@ -65,6 +63,7 @@ def validate_build(directory, arch, ctx):
     provider, version, library = release["provider"], release["version"], release["filename"]
     require(provider == PROVIDER, "unexpected plugin provider")
     validate_tag(version, ctx["tag"], ctx["prerelease"])
+    require(release.get("build_tag") == ctx["tag"], "build tag metadata mismatch")
     require(library == f"{provider}-v{version}.so", "library name disagrees with buildinfo")
     names = {"LICENSE", "build-info.txt", "build-metadata.json", "elf-report.txt", "plugin-metadata.json", "SHA256SUMS", library}
     require(not directory.is_symlink() and {p.name for p in directory.iterdir()} == names, f"unexpected/incomplete {arch} artifact contents")
@@ -79,7 +78,7 @@ def validate_build(directory, arch, ctx):
     require(set(recorded) == names - {"SHA256SUMS"}, "artifact checksum coverage mismatch")
     require(all(sha256(data[name]) == digest for name, digest in recorded.items()), "artifact checksum mismatch")
     metadata = json.loads(data["build-metadata.json"])
-    for key, expected in {"commit": ctx["commit"], "repository": ctx["repository"], "architecture": arch, "os": "linux", "plugin": provider, "plugin_version": version, "library": library, "library_sha256": sha256(data[library]), "elf_machine": ARCHES[arch], "cgo_enabled": True}.items():
+    for key, expected in {"commit": ctx["commit"], "repository": ctx["repository"], "architecture": arch, "os": "linux", "plugin": provider, "plugin_version": version, "build_tag": ctx["tag"], "library": library, "library_sha256": sha256(data[library]), "elf_machine": ARCHES[arch], "cgo_enabled": True}.items():
         require(metadata.get(key) == expected, f"{arch} build metadata mismatch: {key}")
     binary = data[library]
     require(len(binary) >= 20 and binary[:6] == b"\x7fELF\x02\x01" and struct.unpack_from("<HH", binary, 16) == (3, ARCHES[arch]), f"incorrect {arch} ELF")
@@ -131,7 +130,7 @@ def prepare(inputs, output, event, commit, repository):
 
 
 class GitHub:
-    """Only release-asset API operations; no create/edit-release or tag writes."""
+    """Bounded release operations; never writes or moves Git tags."""
     def __init__(self, repository):
         self.repository = repository
 
@@ -140,6 +139,23 @@ class GitHub:
         if binary:
             return result.stdout
         return json.loads(result.stdout) if result.stdout else None
+
+    def find_release(self, tag):
+        pages = self.api(f"repos/{self.repository}/releases?per_page=100", "--paginate", "--slurp")
+        found = [r for page in pages for r in page if r.get("tag_name") == tag]
+        require(len(found) <= 1, "multiple releases for tag")
+        return found[0] if found else None
+
+    def create_draft(self, ctx):
+        return self.api(f"repos/{self.repository}/releases", "--method", "POST",
+                        "-f", f"tag_name={ctx['tag']}", "-f", f"target_commitish={ctx['commit']}",
+                        "-f", f"name={ctx['tag']}", "-F", "draft=true",
+                        "-F", "prerelease=" + str(ctx['prerelease']).lower(),
+                        "-F", "generate_release_notes=true")
+
+    def publish_draft(self, release_id):
+        return self.api(f"repos/{self.repository}/releases/{release_id}",
+                        "--method", "PATCH", "-F", "draft=false")
 
     def release(self, release_id):
         return self.api(f"repos/{self.repository}/releases/{release_id}")
@@ -177,8 +193,8 @@ class GitHub:
 def validate_remote(client, ctx):
     release = client.release(ctx["release_id"])
     require(release.get("id") == ctx["release_id"] and release.get("tag_name") == ctx["tag"], "triggering release identity changed")
-    require(release.get("draft") is False and release.get("prerelease") == ctx["prerelease"], "release publication state changed")
-    require(release.get("immutable") is False, "published release is immutable or mutability is unknown; assets cannot be attached after publication")
+    require(type(release.get("draft")) is bool and release.get("prerelease") == ctx["prerelease"], "release publication state changed")
+    require(not (release["draft"] and release.get("immutable", False)), "draft release unexpectedly immutable")
     require(client.tag_commit(ctx["tag"]) == ctx["commit"], "release tag moved away from the triggering commit")
     return release
 
@@ -212,7 +228,19 @@ def publish(manifest_path, event, commit, repository, client):
     for expected in assets:
         body = read_file(manifest_path.parent / expected["name"])
         require(sha256(body) == expected["sha256"] and len(body) == expected["size"], "local release asset changed")
-    validate_remote(client, ctx)
+    require(client.tag_commit(ctx["tag"]) == ctx["commit"], "release tag moved away from the triggering commit")
+    release = client.find_release(ctx["tag"])
+    if release is None:
+        release = client.create_draft(ctx)
+    require(type(release.get("id")) is int and release["id"] > 0, "invalid release ID")
+    ctx["release_id"] = release["id"]
+    release = validate_remote(client, ctx)
+    if not release["draft"]:
+        existing = asset_map(client, ctx["release_id"])
+        require(all(item["name"] in existing and matches(client, existing[item["name"]], item) for item in assets),
+                "published release differs or is incomplete; refusing mutation")
+        print(f"Release {ctx['tag']} already published and verified")
+        return
     existing = asset_map(client, ctx["release_id"])
     # Conflicts fail before the first mutation. Never use destructive --clobber.
     for expected in assets:
@@ -221,6 +249,7 @@ def publish(manifest_path, event, commit, repository, client):
             require(matches(client, remote, expected), f"existing asset differs; refusing overwrite: {expected['name']}")
     for expected in assets:
         release = validate_remote(client, ctx)
+        require(release["draft"], "release published during upload; refusing mutation")
         remote = asset_map(client, ctx["release_id"]).get(expected["name"])
         if remote and matches(client, remote, expected):
             continue
@@ -236,6 +265,10 @@ def publish(manifest_path, event, commit, repository, client):
     validate_remote(client, ctx)
     final = asset_map(client, ctx["release_id"])
     require(all(item["name"] in final and matches(client, final[item["name"]], item) for item in assets), "release asset verification incomplete")
+    release = validate_remote(client, ctx)
+    if release["draft"]:
+        client.publish_draft(ctx["release_id"])
+    require(validate_remote(client, ctx)["draft"] is False, "release publication not confirmed")
     print(f"Verified complete release assets for {ctx['tag']} at {ctx['commit']}")
 
 

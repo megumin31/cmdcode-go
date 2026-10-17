@@ -62,6 +62,11 @@ static void expect_call(plugin_api *api, const char *method, const char *request
 
 int main(int argc, char **argv) {
     if (argc != 2) fail("usage: test_abi_reload /absolute/path/plugin.so");
+    const char *expected_version = getenv("EXPECTED_PLUGIN_VERSION");
+    char version_match[128];
+    if (expected_version && snprintf(version_match, sizeof(version_match),
+                                    "\"Version\":\"%s\"", expected_version) >= (int)sizeof(version_match))
+        fail("expected version is too long");
     const char *route = "{\"RequestedModel\":\"cmdcode-go/deepseek/deepseek-v4-flash\"}";
     const char *configure = "{\"config_yaml\":\"models_refresh_interval: '0'\\ndisable_models: [deepseek/deepseek-v4-flash]\"}";
     host_api host = {1, NULL, host_call, host_free};
@@ -88,6 +93,8 @@ int main(int argc, char **argv) {
         expect_call(&api, "executor.identifier", "{}", 1, "\"identifier\":\"cmdcode-go\"");
         expect_call(&api, "model.route", route, 1, "\"Handled\":true");
         expect_call(&api, "plugin.reconfigure", configure, 1, "\"ok\":true");
+        if (expected_version)
+            expect_call(&api, "plugin.reconfigure", configure, 1, version_match);
         expect_call(&api, "model.route", route, 1, "\"Handled\":false");
         plugin_api duplicate = {0};
         if (init(&host, &duplicate) == 0) fail("double initialization was accepted");

@@ -72,6 +72,7 @@ metadata = {
     "commit_time": output("git", "show", "-s", "--format=%cI", "HEAD"),
     "plugin": plugin,
     "plugin_version": version,
+    "build_tag": release["build_tag"],
     "library": library.name,
     "library_sha256": hashlib.sha256(binary).hexdigest(),
     "os": "linux",

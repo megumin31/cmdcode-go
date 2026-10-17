@@ -12,9 +12,10 @@ import (
 
 func TestMetadata(t *testing.T) {
 	fields := map[string]string{
-		"provider": buildinfo.Provider,
-		"version":  buildinfo.Version,
-		"filename": buildinfo.Filename,
+		"provider":  buildinfo.Provider,
+		"version":   buildinfo.Version,
+		"filename":  buildinfo.Filename,
+		"build_tag": buildinfo.BuildTag,
 	}
 	var out bytes.Buffer
 	if err := run(nil, &out, io.Discard); err != nil {
