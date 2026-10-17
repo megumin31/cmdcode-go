@@ -188,3 +188,10 @@ Every branch push and pull request runs the native Linux amd64/arm64 quality gat
 ## License
 
 [AGPL-3.0](LICENSE)
+
+### Conversation reuse
+
+Explicit conversation IDs are reused only within the same CPA caller scope and
+selected account. See [session identity and lifecycle](docs/SESSIONS.md) for
+supported fields, stateless fallback, bounded cache lifetime, and concurrent-turn
+HTTP 409 behavior.

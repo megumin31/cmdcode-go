@@ -100,6 +100,10 @@ type generateRequest struct {
 // ---------------------------------------------------------------------------
 // Wire events
 func buildEnvelopeWithSnapshot(upstreamModel string, payload []byte, snap turnSnapshot) ([]byte, error) {
+	return buildEnvelopeForSession(upstreamModel, payload, snap, newUUID())
+}
+
+func buildEnvelopeForSession(upstreamModel string, payload []byte, snap turnSnapshot, sessionID string) ([]byte, error) {
 	var chat chatRequest
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.UseNumber()
@@ -150,7 +154,7 @@ func buildEnvelopeWithSnapshot(upstreamModel string, payload []byte, snap turnSn
 			RecentCommits: []string{},
 		},
 		PermissionMode: snap.config.permissionMode(),
-		ThreadID:       newUUID(),
+		ThreadID:       sessionID,
 		Mode:           "agent",
 		Params:         params,
 	}

@@ -18,6 +18,7 @@ type Plugin struct {
 	Config   *ConfigStore
 	Models   *ModelRegistry
 	Gateway  *GatewayClient
+	sessions *sessionStore
 	host     hostCallbacks
 	stateMu  sync.Mutex
 	mu       sync.Mutex
@@ -35,7 +36,7 @@ func NewPlugin(client *http.Client, host *hostCallbacks) *Plugin {
 	}
 	return &Plugin{
 		Config: &ConfigStore{}, Models: NewModelRegistry(modelTable, client),
-		Gateway: NewGatewayClient(client), host: callbacks, root: ctx, cancel: cancel,
+		sessions: newSessionStore(), Gateway: NewGatewayClient(client), host: callbacks, root: ctx, cancel: cancel,
 	}
 }
 

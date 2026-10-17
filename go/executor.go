@@ -30,6 +30,7 @@ type turnPrep struct {
 	key      string
 	envelope []byte
 	config   pluginConfig
+	release  func()
 }
 
 func (p *Plugin) prepareTurn(req pluginapi.ExecutorRequest) (turnPrep, []byte, error) {
@@ -50,11 +51,22 @@ func (p *Plugin) prepareTurn(req pluginapi.ExecutorRequest) (turnPrep, []byte, e
 		return turnPrep{}, requestErrorEnvelope("model_disabled", "cmdcode-go: model excluded by configuration"), nil
 	}
 	// Keep the suffix until envelope conversion, where it overrides body effort.
-	envelope, err := buildEnvelopeWithSnapshot(req.Model, req.Payload, snap)
+	sessionID := newUUID()
+	release := func() {}
+	if identity, ok := explicitSessionKey(req); ok {
+		var acquired bool
+		sessionID, release, acquired = p.sessions.acquire(identity)
+		if !acquired {
+			raw, _ := json.Marshal(pluginabi.Envelope{OK: false, Error: &pluginabi.Error{Code: "session_busy", Message: "cmdcode-go: session is busy; retry after the active turn finishes", HTTPStatus: http.StatusConflict}})
+			return turnPrep{}, raw, nil
+		}
+	}
+	envelope, err := buildEnvelopeForSession(req.Model, req.Payload, snap, sessionID)
 	if err != nil {
+		release()
 		return turnPrep{}, requestErrorEnvelope("invalid_request", err.Error()), nil
 	}
-	return turnPrep{key: key, envelope: envelope, config: snap.config}, nil, nil
+	return turnPrep{key: key, envelope: envelope, config: snap.config, release: release}, nil, nil
 }
 
 func requestErrorEnvelope(code, message string) []byte {
@@ -133,6 +145,7 @@ func (p *Plugin) executeNonStream(ctx context.Context, request []byte) ([]byte, 
 	if raw != nil || err != nil {
 		return raw, err
 	}
+	defer prep.release()
 	acc, raw, err := p.consumeTurn(ctx, prep)
 	if raw != nil || err != nil {
 		return raw, err
@@ -149,6 +162,12 @@ func (p *Plugin) executeStream(ctx context.Context, request []byte) ([]byte, err
 	if raw != nil || err != nil {
 		return raw, err
 	}
+	transferred := false
+	defer func() {
+		if !transferred {
+			prep.release()
+		}
+	}()
 	if id == "" {
 		acc, raw, err := p.consumeTurn(ctx, prep)
 		if raw != nil || err != nil {
@@ -178,7 +197,8 @@ func (p *Plugin) executeStream(ctx context.Context, request []byte) ([]byte, err
 		done()
 		return upstreamErrorEnvelope(resp.StatusCode, body), nil
 	}
-	go func() { defer done(); p.relayStream(streamCtx, id, req.Model, resp.Body, cancel) }()
+	transferred = true
+	go func() { defer done(); defer prep.release(); p.relayStream(streamCtx, id, req.Model, resp.Body, cancel) }()
 	return okEnvelope(map[string]any{"headers": map[string][]string{"content-type": {"text/event-stream"}}, "chunks": []pluginapi.ExecutorStreamChunk{}})
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -48,7 +49,14 @@ func (g *GatewayClient) Open(ctx context.Context, cfg pluginConfig, envelope []b
 	req.Header.Set("x-command-code-version", cfg.cliVersion())
 	req.Header.Set("x-project-slug", cfg.projectSlug())
 	req.Header.Set("x-taste-learning", "false")
-	req.Header.Set("x-session-id", newUUID())
+	var identity struct {
+		ThreadID string `json:"threadId"`
+	}
+	if err := json.Unmarshal(envelope, &identity); err != nil || identity.ThreadID == "" {
+		cancel()
+		return nil, nil, fmt.Errorf("cmdcode-go: missing upstream conversation identity")
+	}
+	req.Header.Set("x-session-id", identity.ThreadID)
 	req.Header.Set("Authorization", "Bearer "+key)
 	resp, err := g.client.Do(req)
 	if err != nil {
